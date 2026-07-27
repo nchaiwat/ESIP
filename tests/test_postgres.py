@@ -14,10 +14,10 @@ def test_product_family_uses_actual_item_code_prefixes() -> None:
 
 def test_database_url_reads_workspace_env(tmp_path: Path) -> None:
     (tmp_path / ".env").write_text(
-        "ESIP_DATABASE_URL=postgresql://app:secret@localhost:55432/esip\n",
+        "ESIP_DATABASE_URL=postgresql://app:secret@localhost:56543/esip\n",
         encoding="utf-8",
     )
-    assert database_url(tmp_path).endswith("@localhost:55432/esip")
+    assert database_url(tmp_path).endswith("@localhost:56543/esip")
 
 
 def test_database_url_requires_configuration(
