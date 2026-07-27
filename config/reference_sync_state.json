@@ -1,0 +1,27 @@
+{
+  "revision": {
+    "source_registry": "E106ECEB1C9E456EFAB30624130060976A704A82D4F7969E6E9C9D0E5A8180D3",
+    "item_master": "C965DFF398AAC78FADBDCE4BA90A23F1E6A5595EDC3859067F561430140C69A5",
+    "branch_master": "15BFF802F85FBF42802A50B59B5EACCDE07E20BED11C5E30AC9B24245EA60E64",
+    "branch_crosswalk": "46A66ACF5EDEE42945890647740F0022D01F699D80FD9BD1B02042D0F3FA23D1"
+  },
+  "excluded_products": 0,
+  "database_evidence": {
+    "sources": {
+      "count": 7,
+      "fingerprint": "04f5f9e5ca353c8fc77dd8e926237c2d"
+    },
+    "products": {
+      "count": 9423,
+      "fingerprint": "a2ed417e0b2600e44f0352a1bebe9dda"
+    },
+    "branches": {
+      "count": 368,
+      "fingerprint": "b5f30834a75e62e6a8d9d71108ee5e4d"
+    },
+    "approved_branch_mappings": {
+      "count": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    }
+  }
+}

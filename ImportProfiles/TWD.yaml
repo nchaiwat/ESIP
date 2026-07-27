@@ -1,0 +1,34 @@
+source_code: TWD
+status: validated_daily_raw
+profile_version: 1.0
+input_classification: DAILY_RAW
+recognition:
+  workbook_pattern: "*.xls"
+  sheet: ReportSaleSubscription
+  report_date_from: cell_B3
+datasets:
+  sales:
+    header_row: 6
+    data_start_row: 7
+    mapping:
+      column_1: branch_source_name_raw
+      column_6: product_source_code
+      column_7: product_ean
+      column_11: sales_amount_ex_vat_after_discount
+      column_12: sales_qty
+    derive:
+      branch_source_code: "text before first '-' in branch_source_name_raw"
+  inventory:
+    header_row: 6
+    data_start_row: 7
+    mapping:
+      column_1: branch_source_name_raw
+      column_6: product_source_code
+      column_7: product_ean
+      column_13: onhand_qty
+    derive:
+      branch_source_code: "text before first '-' in branch_source_name_raw"
+validation_evidence:
+  batch_count: 14
+  reconciliation_status: passed
+

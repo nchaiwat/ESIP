@@ -1,0 +1,53 @@
+name: esip-local
+
+services:
+  apply-bridge:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.bridge
+    environment:
+      ESIP_WORKSPACE: /workspace
+      ESIP_APPLY_TOKEN: esip-local-apply-token
+      ESIP_DATABASE_URL: postgresql://${ESIP_POSTGRES_USER}:${ESIP_POSTGRES_PASSWORD}@host.docker.internal:${ESIP_POSTGRES_PORT}/${ESIP_POSTGRES_DB}
+      ESIP_AUTO_IMPORT_ENABLED: ${ESIP_AUTO_IMPORT_ENABLED:-true}
+      ESIP_AUTO_IMPORT_TIME: ${ESIP_AUTO_IMPORT_TIME:-08:00}
+      ESIP_EXTERNAL_SCHEDULER_ENABLED: ${ESIP_EXTERNAL_SCHEDULER_ENABLED:-false}
+      ESIP_TELEGRAM_BOT_TOKEN: ${ESIP_TELEGRAM_BOT_TOKEN:-}
+      ESIP_TELEGRAM_CHAT_ID: ${ESIP_TELEGRAM_CHAT_ID:-}
+    volumes:
+      - .:/workspace
+    ports:
+      - "127.0.0.1:8090:8090"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8090/health')"
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./pwa
+      dockerfile: Dockerfile.local
+    environment:
+      ESIP_APPLY_URL: http://apply-bridge:8090/apply
+      ESIP_APPLY_TOKEN: esip-local-apply-token
+      CHOKIDAR_USEPOLLING: "true"
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - ./pwa:/app
+      - esip_node_modules:/app/node_modules
+      - esip_pwa_state:/app/.wrangler
+    depends_on:
+      apply-bridge:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  esip_node_modules:
+  esip_pwa_state:

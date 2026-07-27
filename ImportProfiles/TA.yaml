@@ -1,0 +1,16 @@
+source_code: TA
+status: waiting_for_daily_raw
+profile_version: 0.1
+sap_cardcode: COT-0165
+recognition:
+  workbook_pattern: "PENDING"
+datasets:
+  sales:
+    mapping:
+      PENDING_SOURCE_COLUMN: product_source_code
+  inventory:
+    mapping:
+      PENDING_SOURCE_COLUMN: product_source_code
+notes:
+  - "Thai Aus source registration is prepared."
+  - "This profile must remain disabled until the first Daily Raw files are profiled."

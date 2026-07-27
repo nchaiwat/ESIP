@@ -1,0 +1,34 @@
+name: esip
+
+services:
+  postgres:
+    image: postgres:17.10
+    container_name: esip_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${ESIP_POSTGRES_DB}
+      POSTGRES_USER: ${ESIP_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${ESIP_POSTGRES_PASSWORD}
+      TZ: Asia/Bangkok
+      PGTZ: Asia/Bangkok
+    ports:
+      - "${ESIP_POSTGRES_PORT:-55432}:5432"
+    volumes:
+      - esip_pgdata:/var/lib/postgresql/data
+      - ./database/postgresql/001_initial.sql:/docker-entrypoint-initdb.d/001_initial.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${ESIP_POSTGRES_USER} -d ${ESIP_POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    networks:
+      - esip_backend
+
+volumes:
+  esip_pgdata:
+    name: esip_pgdata
+
+networks:
+  esip_backend:
+    name: esip_backend

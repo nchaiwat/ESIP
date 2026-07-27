@@ -1,0 +1,35 @@
+source_code: GBH
+status: validated_daily_raw
+profile_version: 1.0
+input_classification: DAILY_RAW
+recognition:
+  workbook_patterns: ["Piyawat-*.xlsx", "Runglawan-*.xlsx"]
+  date_from: filename_yyyy_mm_dd
+  partition_rule: combine_files_by_business_date
+datasets:
+  sales:
+    sheet: first_sheet
+    header_rows: [2, 3, 4]
+    data_start_row: 5
+    layout: product_rows_repeated_branch_measure_blocks
+    mapping:
+      column_1: product_source_code
+      branch_block_code: branch_source_code
+      branch_block_name: branch_source_name
+      "จำนวนขาย": sales_qty
+      "ยอดขายสุทธิ": sales_amount_ex_vat_after_discount
+  inventory:
+    sheet: first_sheet
+    header_rows: [2, 3, 4]
+    data_start_row: 5
+    layout: product_rows_repeated_branch_measure_blocks
+    mapping:
+      column_1: product_source_code
+      branch_block_code: branch_source_code
+      branch_block_name: branch_source_name
+      "สต๊อค ณ ปัจจุบัน": onhand_qty
+validation_evidence:
+  batch_count: 8
+  reconciliation_status: passed
+  duplicate_grain_policy: quarantine
+

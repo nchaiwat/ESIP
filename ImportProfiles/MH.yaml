@@ -1,0 +1,36 @@
+source_code: MH
+status: validated_daily_raw
+profile_version: 1.0
+input_classification: DAILY_RAW
+recognition:
+  archive_pattern: "VRM_0000003970_*Data_*.csv.zip"
+  channel_filter: "SITENO starts with M"
+datasets:
+  sales:
+    member_pattern: "*SalesData*.csv"
+    header_row: 2
+    data_start_row: 3
+    mapping:
+      PERIODDATE: sales_date
+      SITENO: branch_source_code
+      SITENAME: branch_source_name
+      ARTNO: product_source_code
+      ARTEAN: product_ean
+      QTY: sales_qty
+      VALUE: sales_amount_ex_vat_after_discount
+  inventory:
+    member_pattern: "*InventoryData*.csv"
+    header_row: 2
+    data_start_row: 3
+    mapping:
+      PERIODDATE: snapshot_date
+      SITENO: branch_source_code
+      SITENAME: branch_source_name
+      ARTNO: product_source_code
+      ARTEAN: product_ean
+      ONHANDQTY: onhand_qty
+      ONHANDVALUE: onhand_value
+validation_evidence:
+  batch_count: 16
+  reconciliation_status: passed
+

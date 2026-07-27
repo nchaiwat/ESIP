@@ -1,0 +1,130 @@
+version: 0.1
+status: evidence_based_draft
+business_contract:
+  sales_amount: ex_vat_after_discount
+  file_date_meaning: report_generated_date
+  inventory_snapshot: end_of_day
+  product_scope:
+    FA: ALUMINIUM
+    FU: UPVC
+  branch_mapping: suggested_then_admin_approved
+
+sources:
+  DH:
+    sales:
+      pattern: "รายงานยอดขาย*.xlsx"
+      sheet_position: 1
+      header_row: 1
+      data_start_row: 2
+      layout: branch_columns
+      product_code_column: 1
+      product_name_column: 2
+      supplier_code_column: 3
+    inventory:
+      pattern: "รายงานสต็อค*.xlsx"
+      header_row: 1
+      data_start_row: 2
+      branch_code_column: 1
+      branch_name_column: 2
+      product_code_column: 3
+      product_name_column: 4
+      onhand_qty_column: 9
+
+  GBH:
+    combined:
+      pattern: "*.xlsx"
+      sheet_position: 1
+      branch_code_row: 3
+      header_row: 4
+      data_start_row: 5
+      layout: repeating_branch_triplets
+      product_code_column: 1
+      product_name_column: 3
+      unit_column: 6
+      active_status_column: 7
+      measures_per_branch: [onhand_qty, sales_qty, sales_amount]
+
+  HH:
+    sales:
+      pattern: "SaleReport*.xlsx"
+      report_date_row: 1
+      branch_header_row: 2
+      measure_header_row: 3
+      data_start_row: 4
+      layout: repeating_branch_pairs
+      product_code_column: 4
+      product_name_column: 5
+      measures_per_branch: [sales_qty, sales_amount]
+    inventory:
+      pattern: "StockReport*.xlsx"
+      report_date_row: 1
+      branch_header_row: 2
+      measure_header_row: 3
+      data_start_row: 4
+      layout: repeating_branch_pairs
+      product_code_column: 4
+      product_name_column: 5
+      measures_per_branch: [onhand_qty, inventory_value]
+
+  HP_MH:
+    encoding: utf-8-sig
+    generated_at_column: CRDATE
+    business_date_column: PERIODDATE
+    split_rule:
+      MH: "SITENO starts with M"
+      HP: "all other SITENO values"
+    sales:
+      pattern: "*_SalesData_*.csv.zip"
+      metadata_row: 1
+      header_row: 2
+      columns:
+        branch_code: SITENO
+        branch_name: SITENAME
+        product_code_candidates: [VDARTNO, ARTEAN, ARTNO]
+        sales_qty: QTY
+        sales_amount: VALUE
+      observed_return_signal:
+        negative_qty_rows_in_sample: 0
+        negative_amount_rows_in_sample: 0
+    inventory:
+      pattern: "*_InventoryData_*.csv.zip"
+      metadata_row: 1
+      header_row: 2
+      columns:
+        branch_code: SITENO
+        branch_name: SITENAME
+        product_code_candidates: [VDARTNO, ARTEAN, ARTNO]
+        onhand_qty: ONHANDQTY
+        inventory_value: ONHANDVALUE
+        return_to_vendor_qty: RTVQTY
+
+  TWD:
+    combined:
+      pattern: "*.xls"
+      sheet: ReportSaleSubscription
+      report_date_row: 3
+      header_row: 6
+      data_start_row: 7
+      branch_column: 1
+      product_code_column: 6
+      barcode_column: 7
+      product_name_column: 8
+      sales_amount_column: 11
+      sales_qty_column: 12
+      onhand_qty_column: 13
+      on_order_qty_column: 14
+      observed_return_signal:
+        rule: negative_sales_qty_and_amount
+        negative_rows_in_sample: 2
+
+  TA:
+    status: waiting_for_daily_raw
+    source_name: Thai Aus
+    sap_cardcode: COT-0165
+    sales:
+      pattern: "PENDING"
+    inventory:
+      pattern: "PENDING"
+    notes:
+      - "Folders and registry are prepared."
+      - "Column mapping and SAP CardCode prefix require evidence from the first Daily Raw delivery."

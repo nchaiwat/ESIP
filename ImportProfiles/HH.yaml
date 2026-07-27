@@ -1,0 +1,36 @@
+source_code: HH
+status: validated_daily_raw
+profile_version: 1.0
+input_classification: DAILY_RAW
+recognition:
+  sales_pattern: "SaleReport*.xlsx"
+  inventory_pattern: "StockReport*.xlsx"
+  recursive_dated_folders: true
+  preferred_filename_suffix: "_YYYYMMDD"
+datasets:
+  sales:
+    sheet: first_sheet
+    report_date_from: cell_A1_with_file_timestamp_fallback
+    header_rows: [2, 3]
+    data_start_row: 4
+    layout: product_rows_repeated_branch_qty_amount_pairs
+    mapping:
+      column_4: product_source_code
+      dynamic_branch_header: branch_source_name
+      branch_pair_first: sales_qty
+      branch_pair_second: sales_amount_ex_vat_after_discount
+  inventory:
+    sheet: first_sheet
+    report_date_from: cell_A1_with_file_timestamp_fallback
+    header_rows: [2, 3]
+    data_start_row: 4
+    layout: product_rows_repeated_branch_qty_value_pairs
+    mapping:
+      column_4: product_source_code
+      dynamic_branch_header: branch_source_name
+      branch_pair_first: onhand_qty
+      branch_pair_second: onhand_value
+validation_evidence:
+  batch_count: 20
+  reconciliation_status: passed
+

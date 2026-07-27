@@ -1,0 +1,78 @@
+version: 1
+canonical_contract:
+  timezone: Asia/Bangkok
+  frequency: daily
+  sales_amount_vat: excluded
+  sales_amount_discount: after_discount
+  sales_type: sell_out
+  returns: separate_records
+  master_system: SAP_B1
+
+sources:
+  DH:
+    name: DoHome
+    sap_cardcode_prefix: CDH
+    input_formats: [xlsx]
+    reports: [sales, inventory]
+    incoming_path: SourceFiles/DH/incoming
+  GBH:
+    name: Global House
+    sap_cardcode_prefix: CGH
+    input_formats: [xlsx]
+    reports: [sales, inventory]
+    incoming_path: SourceFiles/GBH/incoming
+  HH:
+    name: HomeHub
+    sap_cardcode_prefix: CHH
+    input_formats: [xlsx]
+    reports: [sales, inventory]
+    incoming_path: SourceFiles/HH/incoming
+  HP:
+    name: HomePro
+    sap_cardcode_prefix: CHP
+    input_formats: [zip, csv]
+    reports: [sales, inventory]
+    incoming_path: SourceFiles/HP_MH/incoming
+  MH:
+    name: MegaHome
+    sap_cardcode_prefix: CMH
+    input_formats: [zip, csv]
+    reports: [sales, inventory]
+    incoming_path: SourceFiles/HP_MH/incoming
+  TWD:
+    name: Thai Watsadu
+    sap_cardcode_prefix: CTW
+    input_formats: [xls, xlsx]
+    reports: [sales, inventory]
+    incoming_path: SourceFiles/TWD/incoming
+  TA:
+    name: Thai Aus
+    sap_cardcode_prefix: COT-0165
+    sap_cardcode_match: exact
+    input_formats: [xlsx, xls, csv, zip]
+    reports: [sales, inventory]
+    incoming_path: SourceFiles/TA/incoming
+    enabled: false
+    readiness: waiting_for_daily_raw
+
+future_sources:
+  SCG:
+    name: SCG
+    sap_cardcode_prefix: CSC
+    enabled: false
+
+master_data:
+  product:
+    source: SAP_B1
+    entity: Item Master Data
+    path: MasterData/ItemMaster/incoming
+    key: ItemCode
+  customer_sku_mapping:
+    source: SAP_B1
+    entity: OSCN
+    path: MasterData/OSCN/incoming
+  branch:
+    source: SAP_B1
+    entity: Business Partner Master Data
+    path: MasterData/BranchMaster/incoming
+    key: CardCode

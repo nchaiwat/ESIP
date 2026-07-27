@@ -1,0 +1,12 @@
+environment: local
+paths:
+  source_root: SourceFiles
+  master_root: MasterData
+  output_root: output
+  profile_root: ImportProfiles
+database:
+  url: sqlite:///output/esip_local.db
+logging:
+  level: INFO
+  retain_days: 90
+

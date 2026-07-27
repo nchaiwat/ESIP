@@ -1,0 +1,25 @@
+{
+  "status": "REPROCESSED",
+  "previous_oscn_sha256": "2415C89CF35312F1EE5785830BC00FEF68677C4AA7FCF9F55F9A6D916B05B433",
+  "current_oscn_sha256": "2415C89CF35312F1EE5785830BC00FEF68677C4AA7FCF9F55F9A6D916B05B433",
+  "before": {
+    "batch_count": 83,
+    "reconciliation_count": 98,
+    "source_rows": 1212951,
+    "staged_rows": 265721,
+    "quarantined_rows": 947230,
+    "product_not_mapped_rows": 947230,
+    "all_reconciliations_passed": true
+  },
+  "after": {
+    "batch_count": 83,
+    "reconciliation_count": 98,
+    "source_rows": 1212951,
+    "staged_rows": 265721,
+    "quarantined_rows": 947230,
+    "product_not_mapped_rows": 947230,
+    "all_reconciliations_passed": true
+  },
+  "message": "Historical batches were rebuilt and reconciled against the updated OSCN.",
+  "recorded_at_utc": "2026-07-23T06:57:38+00:00"
+}
