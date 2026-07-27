@@ -810,13 +810,7 @@ export default function EsipApp() {
             <div className="dashboard-grid">
               <article className="panel trend-panel">
                 <div className="panel-head"><div><p className="eyebrow">DAILY SALES TREND</p><h3>ยอดขายรายวัน</h3></div><span className="status-pill">{trend.length} วัน</span></div>
-                <div className="chart">
-                  {trend.slice(-20).map((row) => {
-                    const max = Math.max(...trend.map((item) => Number(item.net_amount) || 0), 1);
-                    return <span key={row.sales_date} title={`${row.sales_date}: ${money(row.net_amount)}`} style={{ height: `${Math.max((row.net_amount / max) * 100, 3)}%` }}><i /></span>;
-                  })}
-                </div>
-                <div className="chart-labels"><span>{trend.at(0)?.sales_date ?? "—"}</span><span>{trend.at(-1)?.sales_date ?? "—"}</span></div>
+                <DailySalesChart rows={trend} money={money} />
               </article>
               <article className="panel action-panel">
                 <div className="panel-head"><div><p className="eyebrow">REFERENCE COVERAGE</p><h3>สิ่งที่ดูได้แล้ว</h3></div></div>
@@ -1479,6 +1473,69 @@ function ModuleDetailModal({
         </div>
       </article>
     </div>
+  );
+}
+
+function DailySalesChart({
+  money,
+  rows,
+}: {
+  money: (value: number) => string;
+  rows: DashboardData["trend"];
+}) {
+  const visible = rows.slice(-30);
+  if (visible.length === 0) {
+    return <div className="chart-empty">ยังไม่มีข้อมูลยอดขายรายวัน</div>;
+  }
+
+  const values = visible.map((row) => Number(row.net_amount) || 0);
+  const max = Math.max(...values, 1);
+  const average = values.reduce((sum, value) => sum + value, 0) / values.length;
+  const left = 76;
+  const top = 22;
+  const width = 800;
+  const height = 220;
+  const x = (index: number) => left + (index / Math.max(visible.length - 1, 1)) * width;
+  const y = (value: number) => top + height - (value / max) * height;
+  const linePath = visible.map((row, index) => `${index === 0 ? "M" : "L"} ${x(index)} ${y(Number(row.net_amount) || 0)}`).join(" ");
+  const areaPath = `${linePath} L ${x(visible.length - 1)} ${top + height} L ${left} ${top + height} Z`;
+  const tickIndexes = Array.from(new Set([0, Math.floor((visible.length - 1) / 2), visible.length - 1]));
+
+  return (
+    <figure className="daily-sales-chart">
+      <figcaption>
+        <span><b>{visible.length} วันล่าสุด</b>{visible[0]?.sales_date} ถึง {visible.at(-1)?.sales_date}</span>
+        <span>เฉลี่ย <b>{money(average)} บาท/วัน</b></span>
+      </figcaption>
+      <svg viewBox="0 0 920 300" role="img" aria-label="กราฟยอดขายสุทธิรายวัน 30 วันล่าสุด">
+        <title>ยอดขายสุทธิรายวัน 30 วันล่าสุด</title>
+        {[0, 0.25, 0.5, 0.75, 1].map((tick) => {
+          const tickY = top + height - tick * height;
+          return (
+            <g key={tick}>
+              <line className="grid-line" x1={left} x2={left + width} y1={tickY} y2={tickY} />
+              <text x={left - 10} y={tickY + 4} textAnchor="end">{money(max * tick)}</text>
+            </g>
+          );
+        })}
+        <line className="average-line" x1={left} x2={left + width} y1={y(average)} y2={y(average)} />
+        <text className="average-label" x={left + width - 4} y={y(average) - 6} textAnchor="end">ค่าเฉลี่ย {money(average)}</text>
+        <path className="sales-area" d={areaPath} />
+        <path className="sales-line" d={linePath} />
+        {visible.map((row, index) => (
+          <circle key={row.sales_date} className="sales-point" cx={x(index)} cy={y(Number(row.net_amount) || 0)} r="4">
+            <title>{`${row.sales_date}: ${money(row.net_amount)} บาท · ${money(row.net_qty)} ชิ้น`}</title>
+          </circle>
+        ))}
+        {tickIndexes.map((index) => (
+          <text key={visible[index].sales_date} className="x-tick" x={x(index)} y={top + height + 22} textAnchor={index === 0 ? "start" : index === visible.length - 1 ? "end" : "middle"}>
+            {visible[index].sales_date}
+          </text>
+        ))}
+        <text className="axis-title" x={left + width / 2} y="292" textAnchor="middle">วันที่ขาย</text>
+        <text className="axis-title" x="16" y={top + height / 2} textAnchor="middle" transform={`rotate(-90 16 ${top + height / 2})`}>ยอดขายสุทธิ (บาท)</text>
+      </svg>
+    </figure>
   );
 }
 

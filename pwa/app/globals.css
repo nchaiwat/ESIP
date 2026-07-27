@@ -238,15 +238,22 @@ main { margin-left: 248px; min-height: 100vh; }
 .panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
 .panel h3 { margin: 5px 0 0; font-size: 23px; }
 .status-pill { padding: 5px 9px; border: 1px solid var(--line); border-radius: 999px; color: var(--teal); font: 600 10px/1 ui-monospace, monospace; }
-.chart {
-  height: 245px; margin-top: 28px; display: flex; gap: 9px; align-items: flex-end;
-  border-bottom: 1px solid var(--line);
-  background: repeating-linear-gradient(to bottom, transparent 0 60px, rgba(255,255,255,.045) 61px 62px);
-}
-.chart span { height: 40%; flex: 1; display: flex; align-items: flex-end; }
-.chart i { width: 100%; height: 3px; border-radius: 4px; background: var(--teal); box-shadow: 0 -5px 18px rgba(107,216,203,.2); }
-.chart span:nth-child(3n) i { background: var(--coral); }
-.chart-labels { display: flex; justify-content: space-between; margin-top: 12px; color: var(--muted); font: 600 9px/1 ui-monospace, monospace; }
+.trend-panel { min-width: 0; overflow: hidden; }
+.daily-sales-chart { width: 100%; max-width: 100%; min-width: 0; margin: 22px 0 0; }
+.daily-sales-chart figcaption { display: flex; justify-content: space-between; gap: 16px; color: var(--muted); font-size: 11px; }
+.daily-sales-chart figcaption span { display: flex; gap: 6px; }
+.daily-sales-chart figcaption b { color: var(--text); }
+.daily-sales-chart svg { width: 100%; height: auto; min-height: 285px; overflow: visible; }
+.daily-sales-chart text { fill: var(--muted); font: 10px Inter, "Noto Sans Thai", sans-serif; }
+.daily-sales-chart .grid-line { stroke: var(--line); stroke-width: 1; }
+.daily-sales-chart .axis-title { fill: var(--text); font-weight: 700; }
+.daily-sales-chart .sales-area { fill: rgba(107,216,203,.12); }
+.daily-sales-chart .sales-line { fill: none; stroke: var(--teal); stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
+.daily-sales-chart .sales-point { fill: var(--surface); stroke: var(--teal); stroke-width: 2; }
+.daily-sales-chart .sales-point:hover { fill: var(--yellow); stroke: var(--yellow); }
+.daily-sales-chart .average-line { stroke: var(--yellow); stroke-width: 1.5; stroke-dasharray: 6 5; }
+.daily-sales-chart .average-label { fill: var(--yellow); font-weight: 700; }
+.chart-empty { min-height: 285px; display: grid; place-items: center; margin-top: 22px; color: var(--muted); border: 1px dashed var(--line); }
 .action-panel { padding-bottom: 12px; }
 .action-row { display: grid; grid-template-columns: 34px 1fr 12px; align-items: center; gap: 12px; padding: 18px 2px; border-bottom: 1px solid rgba(255,255,255,.06); }
 .action-row > span { color: var(--muted); font: 700 11px/1 ui-monospace, monospace; }
@@ -603,7 +610,9 @@ html[data-theme="light"] .primary { color: #ffffff; }
   .module-simulation-controls, .user-editor-grid { grid-template-columns: 1fr; }
   .readable-chart { overflow-x: auto; }
   .readable-chart svg { min-width: 720px; }
-  .chart { height: 190px; gap: 5px; }
+  .daily-sales-chart { overflow-x: auto; }
+  .daily-sales-chart figcaption { position: sticky; left: 0; flex-direction: column; }
+  .daily-sales-chart svg { min-width: 700px; }
   .permission { width: 100%; }
   .guardrail { flex-direction: column; gap: 5px; }
   .queue-content { grid-template-columns: 1fr; gap: 13px; }
