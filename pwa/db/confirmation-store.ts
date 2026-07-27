@@ -2,6 +2,50 @@ import { env } from "cloudflare:workers";
 
 export const ROLES = ["ADMINISTRATOR", "SALE_ADMIN", "USER"] as const;
 export type UserRole = (typeof ROLES)[number];
+export const MENU_IDS = [
+  "dashboard",
+  "reports",
+  "simulations",
+  "imports",
+  "confirm",
+  "sources",
+  "audit",
+  "authorize",
+] as const;
+export type MenuId = (typeof MENU_IDS)[number];
+
+const DEFAULT_MENU_PERMISSIONS: Record<UserRole, Record<MenuId, boolean>> = {
+  ADMINISTRATOR: {
+    dashboard: true,
+    reports: true,
+    simulations: true,
+    imports: true,
+    confirm: true,
+    sources: true,
+    audit: true,
+    authorize: true,
+  },
+  SALE_ADMIN: {
+    dashboard: true,
+    reports: true,
+    simulations: true,
+    imports: true,
+    confirm: true,
+    sources: true,
+    audit: true,
+    authorize: false,
+  },
+  USER: {
+    dashboard: true,
+    reports: true,
+    simulations: false,
+    imports: false,
+    confirm: false,
+    sources: true,
+    audit: false,
+    authorize: false,
+  },
+};
 
 export type ConfirmationRow = {
   id: number;
@@ -70,9 +114,17 @@ export async function ensureConfirmationStore() {
       detail TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`),
+    d1.prepare(`CREATE TABLE IF NOT EXISTS role_menu_permissions (
+      role TEXT NOT NULL,
+      menu_id TEXT NOT NULL,
+      can_view INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (role, menu_id)
+    )`),
   ]);
 
   await migrateLegacyRolesAndColumns(d1);
+  await seedDefaultMenuPermissions(d1);
 
   const count = await d1
     .prepare("SELECT COUNT(*) AS count FROM confirmations")
@@ -131,6 +183,21 @@ export async function ensureConfirmationStore() {
   }
 }
 
+async function seedDefaultMenuPermissions(d1: D1Database) {
+  const statements = [];
+  for (const role of ROLES) {
+    for (const menuId of MENU_IDS) {
+      statements.push(
+        d1.prepare(`INSERT OR IGNORE INTO role_menu_permissions
+          (role, menu_id, can_view)
+          VALUES (?, ?, ?)`)
+          .bind(role, menuId, DEFAULT_MENU_PERMISSIONS[role][menuId] ? 1 : 0),
+      );
+    }
+  }
+  await d1.batch(statements);
+}
+
 export async function ensureBootstrapAdmin(email: string) {
   const d1 = db();
   const count = await d1
@@ -184,6 +251,36 @@ export async function getUserRole(email: string): Promise<UserRole> {
 
 export function canConfirm(role: UserRole) {
   return role === "ADMINISTRATOR" || role === "SALE_ADMIN";
+}
+
+export async function listRoleMenuPermissions() {
+  const result = await db()
+    .prepare(`SELECT role, menu_id, can_view
+      FROM role_menu_permissions
+      ORDER BY role, menu_id`)
+    .all<{ role: UserRole; menu_id: MenuId; can_view: number }>();
+  const matrix: Record<UserRole, Record<MenuId, boolean>> = structuredClone(DEFAULT_MENU_PERMISSIONS);
+  for (const row of result.results) {
+    if (ROLES.includes(row.role) && MENU_IDS.includes(row.menu_id)) {
+      matrix[row.role][row.menu_id] = Boolean(row.can_view);
+    }
+  }
+  return matrix;
+}
+
+export async function updateRoleMenuPermission(role: UserRole, menuId: MenuId, canView: boolean) {
+  if (!ROLES.includes(role) || !MENU_IDS.includes(menuId)) throw new Error("Invalid permission");
+  if (role === "ADMINISTRATOR" && menuId === "authorize" && !canView) {
+    throw new Error("Administrator must keep access to Authorize Matrix");
+  }
+  await db()
+    .prepare(`INSERT INTO role_menu_permissions (role, menu_id, can_view, updated_at)
+      VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(role, menu_id) DO UPDATE SET
+        can_view = excluded.can_view,
+        updated_at = CURRENT_TIMESTAMP`)
+    .bind(role, menuId, canView ? 1 : 0)
+    .run();
 }
 
 export async function listUsers() {

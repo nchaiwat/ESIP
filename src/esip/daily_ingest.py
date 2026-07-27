@@ -156,6 +156,13 @@ def ingest_hp_mh(root: Path) -> list[IngestSummary]:
 
 
 def _ingest_twd_file(root: Path, path: Path) -> list[IngestSummary]:
+    if path.stat().st_size == 0:
+        return [
+            IngestSummary(
+                "TWD", "empty_file", 0, 0, 0, Decimal(), Decimal(), Decimal(),
+                f"TWD-empty-{path.name}", True
+            )
+        ]
     digest = hashlib.sha256(path.read_bytes()).hexdigest().upper()
     batch_id = f"TWD-combined-{digest[:16]}"
     existing = existing_batch_summaries(root, batch_id)

@@ -34,3 +34,10 @@ export const auditEvents = sqliteTable("audit_events", {
   detail: text("detail").notNull(),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
+
+export const roleMenuPermissions = sqliteTable("role_menu_permissions", {
+  role: text("role").notNull(),
+  menuId: text("menu_id").notNull(),
+  canView: integer("can_view").notNull().default(0),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
+from os import getenv
 from pathlib import Path
 
 from esip.manifest import sha256_file
@@ -16,6 +17,7 @@ SOURCE_FOLDERS = (
     ("TA", Path("SourceFiles/TA/incoming")),
 )
 DATA_SUFFIXES = {".xlsx", ".xls", ".csv", ".zip"}
+DEFAULT_MAX_HASH_FILES = 1500
 DATE_PATTERN = re.compile(
     r"(?:20\d{2}[-_]?\d{2}[-_]?\d{2}|\d{2}[-_]\d{2}[-_]20\d{2}|\d{8})"
 )
@@ -31,6 +33,9 @@ def _is_dated(path: Path, incoming: Path) -> bool:
 
 
 def evaluate_input_file_safety(root: Path) -> list[dict[str, object]]:
+    max_hash_files = int(
+        getenv("ESIP_INPUT_SAFETY_MAX_HASH_FILES", str(DEFAULT_MAX_HASH_FILES))
+    )
     results: list[dict[str, object]] = []
     for source_code, relative_folder in SOURCE_FOLDERS:
         incoming = root / relative_folder
@@ -47,9 +52,11 @@ def evaluate_input_file_safety(root: Path) -> list[dict[str, object]]:
             key=lambda path: path.as_posix().casefold(),
         )
         undated = [path for path in files if not _is_dated(path, incoming)]
+        duplicate_scan_skipped = len(files) > max_hash_files
         hashes: dict[str, list[Path]] = defaultdict(list)
-        for path in files:
-            hashes[sha256_file(path)].append(path)
+        if not duplicate_scan_skipped:
+            for path in files:
+                hashes[sha256_file(path)].append(path)
         duplicate_groups = [paths for paths in hashes.values() if len(paths) > 1]
         duplicate_files = [path for paths in duplicate_groups for path in paths]
         if not files:
@@ -82,9 +89,13 @@ def evaluate_input_file_safety(root: Path) -> list[dict[str, object]]:
                 "duplicate_group_count": len(duplicate_groups),
                 "duplicate_file_count": len(duplicate_files),
                 "duplicate_status": (
-                    "ATTENTION_DUPLICATE_CONTENT"
-                    if duplicate_groups
-                    else "NO_DUPLICATE_CONTENT"
+                    "DUPLICATE_SCAN_SKIPPED_LARGE_HISTORY"
+                    if duplicate_scan_skipped
+                    else (
+                        "ATTENTION_DUPLICATE_CONTENT"
+                        if duplicate_groups
+                        else "NO_DUPLICATE_CONTENT"
+                    )
                 ),
                 "duplicate_files": "|".join(
                     path.relative_to(incoming).as_posix() for path in duplicate_files[:10]

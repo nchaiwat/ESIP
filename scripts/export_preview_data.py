@@ -83,11 +83,12 @@ def main() -> None:
                     """SELECT source_code, dataset,
                     SUM(staged_rows) AS staged_rows,
                     SUM(quarantined_rows) AS quarantined_rows,
-                    SUM(total_rows) AS total_rows,
-                    CASE WHEN SUM(total_rows) = 0 THEN 0
-                    ELSE SUM(staged_rows)::DOUBLE PRECISION / SUM(total_rows) END
+                    SUM(source_rows) AS total_rows,
+                    CASE WHEN SUM(source_rows) = 0 THEN 0
+                    ELSE SUM(staged_rows)::DOUBLE PRECISION / SUM(source_rows) END
                     AS staged_rate
-                    FROM vw_dataset_coverage
+                    FROM import_batch b
+                    JOIN batch_reconciliation r USING(import_batch_id)
                     GROUP BY source_code, dataset
                     ORDER BY source_code, dataset""",
                 ),

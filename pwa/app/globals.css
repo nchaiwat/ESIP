@@ -392,6 +392,14 @@ html[data-theme="light"] .primary { color: #ffffff; }
 .scenario-results strong { display: block; margin: 14px 0 8px; font-size: 24px; letter-spacing: -.02em; }
 .scenario-results small.positive { color: var(--green); }
 .scenario-results small.negative { color: var(--coral); }
+.simulation-dashboard-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 16px; }
+.scenario-dashboard-card { min-height: 205px; }
+.scenario-dashboard-card > strong { display: block; margin: 22px 0 6px; font-size: 28px; letter-spacing: -.025em; }
+.scenario-dashboard-card > small { display: block; font: 800 11px/1 ui-monospace, monospace; }
+.scenario-dashboard-card > small.positive { color: var(--green); }
+.scenario-dashboard-card > small.negative { color: var(--coral); }
+.scenario-dashboard-card > p { margin: 18px 0 0; color: var(--muted); line-height: 1.6; }
+.scenario-dashboard-card.waiting { border-style: dashed; }
 
 .source-status-board { margin: 18px 0; padding: 0; overflow: hidden; }
 .source-status-board .panel-head { padding: 22px 24px 16px; }
@@ -442,6 +450,10 @@ html[data-theme="light"] .primary { color: #ffffff; }
 .auth-head { color: var(--teal); background: var(--surface-high); font: 800 9px/1 ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
 .auth-table strong { font-size: 13px; }
 .auth-table span { color: var(--muted); font-size: 12px; line-height: 1.45; }
+.permission-toggle { display: flex; align-items: center; gap: 8px; width: fit-content; }
+.permission-toggle input { width: 18px; height: 18px; accent-color: var(--teal); }
+.permission-toggle input:disabled { opacity: .45; }
+.permission-toggle span { color: var(--text); font-weight: 700; }
 
 @media (max-width: 1050px) {
   .kpi-grid { grid-template-columns: repeat(2, 1fr); }
@@ -450,6 +462,7 @@ html[data-theme="light"] .primary { color: #ffffff; }
   .executive-strip article { border-bottom: 1px solid var(--line); }
   .intelligence-grid { grid-template-columns: 1fr; }
   .module-grid { grid-template-columns: repeat(3, 1fr); }
+  .simulation-dashboard-grid { grid-template-columns: repeat(2, 1fr); }
   .source-grid { grid-template-columns: repeat(2, 1fr); }
   .queue-content { grid-template-columns: repeat(2, 1fr); }
   .role-grid { grid-template-columns: 1fr; }
@@ -459,6 +472,9 @@ html[data-theme="light"] .primary { color: #ffffff; }
   .confirm-guide { grid-template-columns: 1fr; }
   .import-kpis { grid-template-columns: repeat(2, 1fr); }
   .import-layout { grid-template-columns: 1fr; }
+  .simulation-body { grid-template-columns: 1fr; }
+  .scenario-results { grid-template-columns: repeat(2, 1fr); }
+  .simulation-dashboard-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 760px) {

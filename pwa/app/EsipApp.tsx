@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Role = "ADMINISTRATOR" | "SALE_ADMIN" | "USER";
-type PageId = "dashboard" | "reports" | "imports" | "confirm" | "sources" | "audit" | "authorize";
+type PageId = "dashboard" | "reports" | "simulations" | "imports" | "confirm" | "sources" | "audit" | "authorize";
 type Theme = "dark" | "light";
 
 type Confirmation = {
@@ -78,6 +78,7 @@ type DashboardData = {
 };
 
 type UserRow = { email: string; role: Role; created_at: string };
+type PermissionMatrix = Record<Role, Record<PageId, boolean>>;
 type ImportFile = { source: string; filename: string; size: number; modified_at: string; pending: boolean };
 type ImportEvent = { run_id: string; trigger: string; actor: string; status: string; started_at?: string; finished_at?: string; source?: string; filename?: string; detail?: string };
 type ImportCenterData = {
@@ -90,6 +91,7 @@ type ImportCenterData = {
 const nav: Array<[PageId, string]> = [
   ["dashboard", "ภาพรวม"],
   ["reports", "รายงาน Sale Out"],
+  ["simulations", "Simulation Lab"],
   ["imports", "นำเข้าข้อมูล"],
   ["confirm", "Admin Confirm"],
   ["sources", "แหล่งข้อมูล"],
@@ -140,15 +142,38 @@ const rawSourcePaths = [
   { code: "TA", name: "Thai Aus", local: "D:\\Python\\ESIP\\SourceFiles\\TA\\incoming", nas: "รอเปิดใช้งานเมื่อมี Daily Raw ชุดแรก" },
 ];
 
-const permissionRows = [
-  { area: "Executive Dashboard", administrator: "Full", saleAdmin: "View", user: "View" },
-  { area: "Sale Out Reports", administrator: "Full", saleAdmin: "View / Export", user: "View" },
-  { area: "RAW Import Center", administrator: "Upload / Process", saleAdmin: "Upload / Process", user: "No access" },
-  { area: "Mapping Confirm & Apply", administrator: "Approve / Reject / Override", saleAdmin: "Approve / Reject", user: "No access" },
-  { area: "Audit Trail", administrator: "View all", saleAdmin: "View sales ops", user: "No access" },
-  { area: "User & Role Admin", administrator: "Manage", saleAdmin: "No access", user: "No access" },
-  { area: "System Settings", administrator: "Manage", saleAdmin: "No access", user: "No access" },
-];
+const defaultPermissions: PermissionMatrix = {
+  ADMINISTRATOR: {
+    dashboard: true,
+    reports: true,
+    simulations: true,
+    imports: true,
+    confirm: true,
+    sources: true,
+    audit: true,
+    authorize: true,
+  },
+  SALE_ADMIN: {
+    dashboard: true,
+    reports: true,
+    simulations: true,
+    imports: true,
+    confirm: true,
+    sources: true,
+    audit: true,
+    authorize: false,
+  },
+  USER: {
+    dashboard: true,
+    reports: true,
+    simulations: false,
+    imports: false,
+    confirm: false,
+    sources: true,
+    audit: false,
+    authorize: false,
+  },
+};
 
 const money = (value: number) =>
   new Intl.NumberFormat("th-TH", { maximumFractionDigits: 0 }).format(value || 0);
@@ -176,6 +201,7 @@ export default function EsipApp() {
   const [queueSearch, setQueueSearch] = useState("");
   const [queueTotal, setQueueTotal] = useState(0);
   const [users, setUsers] = useState<UserRow[]>([]);
+  const [permissions, setPermissions] = useState<PermissionMatrix>(defaultPermissions);
   const [newUserEmail, setNewUserEmail] = useState("");
   const [newUserRole, setNewUserRole] = useState<Role>("USER");
   const [imports, setImports] = useState<ImportCenterData | null>(null);
@@ -258,15 +284,35 @@ export default function EsipApp() {
       .catch(() => undefined);
   }, [auth?.role, localRole]);
 
+  useEffect(() => {
+    if (!auth) return;
+    fetch("/api/permissions", { headers: { "x-esip-local-role": localRole } })
+      .then(async (response) => {
+        const payload = (await response.json()) as { permissions?: PermissionMatrix };
+        if (response.ok && payload.permissions) setPermissions(payload.permissions);
+      })
+      .catch(() => undefined);
+  }, [auth, localRole]);
+
   const visibleNav = useMemo(
     () =>
       nav.filter(([id]) => {
-        if (id === "authorize") return auth?.role === "ADMINISTRATOR";
-        if (id === "confirm" || id === "audit" || id === "imports") return auth?.role !== "USER";
-        return true;
+        const role = auth?.role ?? "USER";
+        if (id === "confirm" && !auth?.canConfirm) return false;
+        return Boolean(permissions[role]?.[id]);
       }),
-    [auth?.role],
+    [auth?.canConfirm, auth?.role, permissions],
   );
+
+  useEffect(() => {
+    const role = auth?.role ?? "USER";
+    if (!permissions[role]?.[active]) {
+      const fallback = nav.find(([id]) => permissions[role]?.[id])?.[0] ?? "dashboard";
+      const timer = window.setTimeout(() => setActive(fallback), 0);
+      return () => window.clearTimeout(timer);
+    }
+    return undefined;
+  }, [active, auth?.role, permissions]);
 
   const loadImports = useCallback(async () => {
     const response = await fetch("http://localhost:8090/imports", { cache: "no-store" });
@@ -445,6 +491,30 @@ export default function EsipApp() {
     setMessage("บันทึก Role แล้ว");
   }
 
+  async function savePermission(role: Role, menuId: PageId, canView: boolean) {
+    const next = {
+      ...permissions,
+      [role]: { ...permissions[role], [menuId]: canView },
+    };
+    setPermissions(next);
+    const response = await fetch("/api/permissions", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-esip-local-role": localRole,
+      },
+      body: JSON.stringify({ role, menuId, canView }),
+    });
+    const payload = (await response.json()) as { permissions?: PermissionMatrix; error?: string };
+    if (!response.ok) {
+      setPermissions(permissions);
+      setMessage(payload.error ?? "บันทึกสิทธิ์ไม่สำเร็จ");
+      return;
+    }
+    if (payload.permissions) setPermissions(payload.permissions);
+    setMessage("บันทึกสิทธิ์เมนูแล้ว");
+  }
+
   const trend = dashboard?.trend ?? [];
   const coverage = dashboard?.coverage;
   const sourceSales = dashboard?.source_sales ?? [];
@@ -581,16 +651,6 @@ export default function EsipApp() {
               <article><span>Stock on hand</span><strong>{money(inventoryTotal)}</strong><small>Latest snapshot รวมทุก MT</small></article>
               <article><span>Data issues</span><strong>{dashboard?.data_quality.length ?? 0}</strong><small>รายการที่ต้องตรวจสอบ</small></article>
             </div>
-            <SimulationLab
-              cogsLift={cogsLift}
-              money={money}
-              priceLift={priceLift}
-              setCogsLift={setCogsLift}
-              setPriceLift={setPriceLift}
-              setVolumeLift={setVolumeLift}
-              simulation={simulation}
-              volumeLift={volumeLift}
-            />
             <SourceStatusBoard
               imports={imports}
               money={money}
@@ -648,11 +708,17 @@ export default function EsipApp() {
           </section>
         )}
 
-        {active === "reports" && (
+        {active === "simulations" && (
           <section className="page">
-            <div className="section-title"><div><p className="eyebrow teal">REFERENCE BOOK COVERAGE</p><h2>รายงาน Sale Out</h2><p className="subtext">โครงสร้างตาม “สรุป Sale Out.xlsx” และ “Current Dashboard” โดยใช้ข้อมูลจริงที่มีอยู่ใน ESIP</p></div></div>
+            <div className="section-title">
+              <div>
+                <p className="eyebrow teal">SIMULATION LAB</p>
+                <h2>ทดลองตัวเลขแยกตาม Dashboard</h2>
+                <p className="subtext">พื้นที่นี้แยกจาก C-Level Dashboard โดยเฉพาะ ปรับสมมติฐานได้โดยไม่เปลี่ยนข้อมูลจริงและไม่กระทบรายงานที่ผู้บริหารใช้ดูประจำวัน</p>
+              </div>
+              <span className="data-scope">BASE ACTUAL • {coverage?.first_date ?? "—"} → {coverage?.last_date ?? "—"}</span>
+            </div>
             <SimulationLab
-              compact
               cogsLift={cogsLift}
               money={money}
               priceLift={priceLift}
@@ -662,6 +728,20 @@ export default function EsipApp() {
               simulation={simulation}
               volumeLift={volumeLift}
             />
+            <div className="simulation-dashboard-grid">
+              <ScenarioDashboardCard title="Sales Dashboard" status="READY" value={simulation.simulatedRevenue} delta={simulation.revenueDelta} money={money} detail="ปรับราคาขายและ volume เพื่อดูยอดขายรวม รายวัน และ MT contribution ใหม่" />
+              <ScenarioDashboardCard title="Gross Profit Dashboard" status="MODEL" value={simulation.simulatedGp} delta={simulation.gpDelta} money={money} detail="ใช้ COGS baseline 72% ชั่วคราว จนกว่าจะมี Cost/COGS จริงจากระบบ" />
+              <ScenarioDashboardCard title="MT Performance" status="READY" value={sourceSales.length} delta={volumeLift} money={money} unit="MT" detail="เทียบผลกระทบกับทุก MT ที่มีข้อมูล โดยใช้ slider volume เป็นตัวแทน demand change" />
+              <ScenarioDashboardCard title="Inventory Dashboard" status="MODEL" value={inventoryTotal * (1 - volumeLift / 100)} delta={-volumeLift} money={money} unit="QTY" detail="จำลอง stock on hand หลังยอดขายเปลี่ยน ยังไม่รวม on order และ replenishment" />
+              <ScenarioDashboardCard title="Branch Dashboard" status="READY" value={dashboard?.top_branches.length ?? 0} delta={priceLift} money={money} unit="BRANCH" detail="ดูผลเชิงสาขาจาก Top branch ที่โหลดจริง และเตรียมต่อ drill-down ในรอบถัดไป" />
+              <ScenarioDashboardCard title="Target / Forecast" status="WAITING DATA" value={0} delta={0} money={money} detail="พร้อมต่อเมื่อมี target, forecast และ calendar assumption" />
+            </div>
+          </section>
+        )}
+
+        {active === "reports" && (
+          <section className="page">
+            <div className="section-title"><div><p className="eyebrow teal">REFERENCE BOOK COVERAGE</p><h2>รายงาน Sale Out</h2><p className="subtext">โครงสร้างตาม “สรุป Sale Out.xlsx” และ “Current Dashboard” โดยใช้ข้อมูลจริงที่มีอยู่ใน ESIP</p></div></div>
             <div className="report-grid">
               <ReportTable title="ยอดขายแยก MT" columns={["MT", "วันแรก", "วันล่าสุด", "จำนวนวัน", "QTY", "Amount ex.VAT"]} rows={(dashboard?.source_sales ?? []).map((row) => [row.source_code, row.first_date, row.last_date, row.available_days, money(row.net_qty), money(row.net_amount)])} />
               <ReportTable title="Top 15 สาขา" columns={["MT", "สาขา", "QTY", "Amount ex.VAT"]} rows={(dashboard?.top_branches ?? []).map((row) => [row.source_code, row.branch_source_name || "ไม่ระบุ", money(row.net_qty), money(row.net_amount)])} />
@@ -856,7 +936,10 @@ export default function EsipApp() {
               <article className="panel role-card"><span>02</span><h3>Sale Admin</h3><p>ดูข้อมูลขาย, upload/process RAW, confirm mapping และดู audit งานขาย</p></article>
               <article className="panel role-card"><span>03</span><h3>User</h3><p>ดู dashboard และรายงานแบบอ่านอย่างเดียว ไม่มีสิทธิ์ action หลังบ้าน</p></article>
             </div>
-            <AuthorizationMatrix />
+            <AuthorizationMatrix
+              onChange={savePermission}
+              permissions={permissions}
+            />
             <article className="panel user-management">
               <div className="panel-head"><div><p className="eyebrow">USER MANAGEMENT</p><h3>กำหนด Role ด้วยอีเมล</h3></div></div>
               <div className="user-form">
@@ -984,6 +1067,36 @@ function SliderControl({
   );
 }
 
+function ScenarioDashboardCard({
+  delta,
+  detail,
+  money,
+  status,
+  title,
+  unit = "THB",
+  value,
+}: {
+  delta: number;
+  detail: string;
+  money: (value: number) => string;
+  status: string;
+  title: string;
+  unit?: string;
+  value: number;
+}) {
+  const isWaiting = status === "WAITING DATA";
+  return (
+    <article className={`panel scenario-dashboard-card ${isWaiting ? "waiting" : ""}`}>
+      <div className="panel-head">
+        <div><p className="eyebrow">{status}</p><h3>{title}</h3></div>
+      </div>
+      <strong>{unit === "THB" ? money(value) : `${money(value)} ${unit}`}</strong>
+      <small className={delta >= 0 ? "positive" : "negative"}>{delta >= 0 ? "+" : ""}{delta.toFixed(1)}%</small>
+      <p>{detail}</p>
+    </article>
+  );
+}
+
 function SourceStatusBoard({
   detailed = false,
   imports,
@@ -1032,18 +1145,35 @@ function SourceStatusBoard({
   );
 }
 
-function AuthorizationMatrix() {
+function AuthorizationMatrix({
+  onChange,
+  permissions,
+}: {
+  onChange: (role: Role, menuId: PageId, canView: boolean) => void;
+  permissions: PermissionMatrix;
+}) {
   return (
     <article className="panel authorization-matrix">
-      <div className="panel-head"><div><p className="eyebrow">ACCESS BY USER GROUP</p><h3>สิทธิ์การเข้าถึงราย Module</h3></div><span className="status-pill">SERVER ENFORCED</span></div>
+      <div className="panel-head"><div><p className="eyebrow">ACCESS BY USER GROUP</p><h3>สิทธิ์การเห็นเมนูราย Role</h3></div><span className="status-pill">ADMIN EDITABLE</span></div>
       <div className="auth-table">
         <div className="auth-head"><span>Module</span><span>Administrator</span><span>Sale Admin</span><span>User</span></div>
-        {permissionRows.map((row) => (
-          <div key={row.area}>
-            <strong>{row.area}</strong>
-            <span>{row.administrator}</span>
-            <span>{row.saleAdmin}</span>
-            <span>{row.user}</span>
+        {nav.map(([menuId, label]) => (
+          <div key={menuId}>
+            <strong>{label}</strong>
+            {(["ADMINISTRATOR", "SALE_ADMIN", "USER"] as const).map((role) => {
+              const locked = role === "ADMINISTRATOR" && menuId === "authorize";
+              return (
+                <label className="permission-toggle" key={`${role}-${menuId}`}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(permissions[role]?.[menuId])}
+                    disabled={locked}
+                    onChange={(event) => onChange(role, menuId, event.target.checked)}
+                  />
+                  <span>{permissions[role]?.[menuId] ? "View" : "No access"}</span>
+                </label>
+              );
+            })}
           </div>
         ))}
       </div>

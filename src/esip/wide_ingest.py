@@ -6,6 +6,7 @@ import re
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
+from zipfile import is_zipfile
 
 import psycopg
 from openpyxl import load_workbook
@@ -319,10 +320,18 @@ def _gbh_batch_identity(
 def ingest_gbh(root: Path) -> list[IngestSummary]:
     incoming = root / "SourceFiles" / "GBH" / "incoming"
     grouped: dict[date, list[Path]] = {}
+    summaries: list[IngestSummary] = []
     for path in sorted(incoming.glob("*.xlsx")):
+        if path.stat().st_size == 0 or not is_zipfile(path):
+            summaries.append(
+                IngestSummary(
+                    "GBH", "invalid_file", 0, 0, 0, Decimal(), Decimal(), Decimal(),
+                    f"GBH-invalid-{path.name}", True
+                )
+            )
+            continue
         grouped.setdefault(report_date_from_filename(path), []).append(path)
     mapping: dict[str, str | None] | None = None
-    summaries: list[IngestSummary] = []
     for business_date, paths in sorted(grouped.items()):
         batch_id, _, _ = _gbh_batch_identity(business_date, paths)
         existing = existing_batch_summaries(root, batch_id)
@@ -532,6 +541,11 @@ def ingest_hh(root: Path) -> list[IngestSummary]:
 
 
 def _ingest_dh_inventory_file(root: Path, path: Path) -> IngestSummary:
+    if path.stat().st_size == 0 or not is_zipfile(path):
+        return IngestSummary(
+            "DH", "invalid_inventory_file", 0, 0, 0, Decimal(), Decimal(), Decimal(),
+            f"DH-invalid-{path.name}", True
+        )
     existing = _existing_for_path(root, "DH", "inventory", path)
     if existing:
         return existing[0]
@@ -540,6 +554,8 @@ def _ingest_dh_inventory_file(root: Path, path: Path) -> IngestSummary:
     mapping = _oscn(root, "CDH")
     rows = []
     for row_no, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
+        if len(row) <= 8:
+            continue
         product_code = str(row[2] or "").strip()
         if not product_code:
             continue
@@ -573,6 +589,11 @@ def ingest_dh_inventory(root: Path) -> list[IngestSummary]:
 
 
 def _ingest_dh_sales_file(root: Path, path: Path) -> IngestSummary:
+    if path.stat().st_size == 0 or not is_zipfile(path):
+        return IngestSummary(
+            "DH", "invalid_sales_file", 0, 0, 0, Decimal(), Decimal(), Decimal(),
+            f"DH-invalid-{path.name}", True
+        )
     existing = _existing_for_path(root, "DH", "sales", path)
     if existing:
         return existing[0]
@@ -593,13 +614,14 @@ def _ingest_dh_sales_file(root: Path, path: Path) -> IngestSummary:
             continue
         sap_item = mapping.get(product_code)
         for column, branch_name in branches:
+            qty_value = row[column] if column < len(row) else 0
             rows.append(
                 {
                     "product_code": product_code,
                     "sap_item": sap_item,
                     "branch_code": branch_name,
                     "branch_name": branch_name,
-                    "qty": _decimal(str(row[column] or 0)),
+                    "qty": _decimal(str(qty_value or 0)),
                     "amount": Decimal(),
                     "value": None,
                     "sheet": sheet.title,
