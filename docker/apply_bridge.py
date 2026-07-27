@@ -8,6 +8,7 @@ from email.policy import default as email_policy
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import heapq
 import os
 from pathlib import Path
 import re
@@ -45,6 +46,8 @@ IMPORT_DIRS = {
 IMPORT_LOG = ROOT / "output" / "operations" / "import_history.jsonl"
 IMPORT_STATE = ROOT / "output" / "operations" / "import_scheduler.json"
 IMPORT_LOCK = threading.Lock()
+PENDING_CACHE_LOCK = threading.Lock()
+PENDING_CACHE: dict[str, object] = {"expires_at": 0.0, "rows": []}
 SCHEDULE_ENABLED = os.environ.get("ESIP_AUTO_IMPORT_ENABLED", "true").lower() == "true"
 SCHEDULE_TIME = os.environ.get("ESIP_AUTO_IMPORT_TIME", "08:00")
 EXTERNAL_SCHEDULE_ENABLED = (
@@ -118,27 +121,51 @@ def detect_source(filename: str) -> tuple[str | None, str]:
     return None, "Filename is ambiguous; select MT before upload"
 
 
-def pending_files() -> list[dict[str, object]]:
+def pending_files(force_refresh: bool = False) -> list[dict[str, object]]:
+    now = time.monotonic()
+    with PENDING_CACHE_LOCK:
+        if not force_refresh and now < float(PENDING_CACHE["expires_at"]):
+            return list(PENDING_CACHE["rows"])
+
     latest_run = read_json(ROOT / "output" / "daily_runs" / "latest_run.json", {})
     last_started = str(latest_run.get("started_at", "")) if isinstance(latest_run, dict) else ""
-    rows: list[dict[str, object]] = []
+    candidates: list[tuple[float, str, str, int]] = []
     for source, directory in IMPORT_DIRS.items():
         if not directory.is_dir():
             continue
-        for path in sorted(directory.iterdir(), key=lambda item: item.stat().st_mtime, reverse=True):
-            if not path.is_file():
-                continue
-            modified = datetime.fromtimestamp(path.stat().st_mtime).astimezone()
-            rows.append(
+        try:
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    try:
+                        if not entry.is_file():
+                            continue
+                        stat = entry.stat()
+                        candidates.append((stat.st_mtime, source, entry.name, stat.st_size))
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+
+    rows: list[dict[str, object]] = []
+    for modified_timestamp, source, filename, size in heapq.nlargest(
+        250,
+        candidates,
+        key=lambda item: item[0],
+    ):
+        modified = datetime.fromtimestamp(modified_timestamp).astimezone()
+        rows.append(
                 {
                     "source": source,
-                    "filename": path.name,
-                    "size": path.stat().st_size,
+                    "filename": filename,
+                    "size": size,
                     "modified_at": modified.isoformat(timespec="seconds"),
                     "pending": not last_started or modified.isoformat() > last_started,
                 }
             )
-    return rows[:250]
+    with PENDING_CACHE_LOCK:
+        PENDING_CACHE["rows"] = rows
+        PENDING_CACHE["expires_at"] = time.monotonic() + 30
+    return list(rows)
 
 
 def telegram_notify(message: str) -> dict[str, object]:

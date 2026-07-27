@@ -227,6 +227,29 @@ const defaultPermissions: PermissionMatrix = {
 const money = (value: number) =>
   new Intl.NumberFormat("th-TH", { maximumFractionDigits: 0 }).format(value || 0);
 
+async function readJsonResponse<T>(response: Response, serviceName: string): Promise<T> {
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.toLowerCase().includes("application/json")) {
+    throw new Error(`${serviceName} ตอบกลับผิดรูปแบบ กรุณาตรวจสอบว่า API ทำงานอยู่`);
+  }
+  return (await response.json()) as T;
+}
+
+async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = 15000) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error(`API ใช้เวลาตอบกลับเกิน ${Math.round(timeoutMs / 1000)} วินาที`);
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
 const emptyUserDraft: UserDraft = {
   email: "",
   role: "USER",
@@ -282,8 +305,8 @@ export default function EsipApp() {
   };
 
   const loadDashboardData = useCallback(async () => {
-    const dataResponse = await fetch("http://localhost:8090/data", { cache: "no-store" });
-    const dashboardPayload = (await dataResponse.json()) as DashboardData & { error?: string };
+    const dataResponse = await fetchWithTimeout("http://localhost:8090/data", { cache: "no-store" });
+    const dashboardPayload = await readJsonResponse<DashboardData & { error?: string }>(dataResponse, "Dashboard API");
     if (!dataResponse.ok) throw new Error(dashboardPayload.error ?? "โหลดข้อมูลรายงานไม่ได้");
     setDashboard(dashboardPayload);
     if (typeof dashboardPayload.approval_queue_total === "number") {
@@ -301,15 +324,15 @@ export default function EsipApp() {
       fetch(`http://localhost:8090/queue?${query}`, { cache: "no-store" }),
       fetch("http://localhost:8090/audit", { cache: "no-store" }),
     ]);
-    const queuePayload = (await queueResponse.json()) as {
+    const queuePayload = await readJsonResponse<{
       items?: Confirmation[];
       total?: number;
       error?: string;
-    };
-    const auditPayload = (await auditResponse.json()) as {
+    }>(queueResponse, "Queue API");
+    const auditPayload = await readJsonResponse<{
       events?: AuditEvent[];
       error?: string;
-    };
+    }>(auditResponse, "Audit API");
     if (!queueResponse.ok) throw new Error(queuePayload.error ?? "โหลดคิวไม่ได้");
     setQueue(queuePayload.items ?? []);
     setQueueTotal(queuePayload.total ?? 0);
@@ -328,7 +351,7 @@ export default function EsipApp() {
       cache: "no-store",
       headers: { "x-esip-local-role": localRole },
     })
-      .then(async (response) => (await response.json()) as ApiPayload)
+      .then(async (response) => readJsonResponse<ApiPayload>(response, "Authorization API"))
       .then(async (payload) => {
         setAuth(payload);
         if (payload.mode === "LOCAL_TRIAL") {
@@ -400,8 +423,8 @@ export default function EsipApp() {
   }, [active, auth?.role, permissions]);
 
   const loadImports = useCallback(async () => {
-    const response = await fetch("http://localhost:8090/imports", { cache: "no-store" });
-    const payload = (await response.json()) as ImportCenterData & { error?: string };
+    const response = await fetchWithTimeout("http://localhost:8090/imports", { cache: "no-store" }, 15000);
+    const payload = await readJsonResponse<ImportCenterData & { error?: string }>(response, "Import Status API");
     if (!response.ok) throw new Error(payload.error ?? "โหลดข้อมูล Import Center ไม่ได้");
     setImports(payload);
   }, []);
