@@ -75,6 +75,19 @@ export type AuditRow = {
   created_at: string;
 };
 
+export type ManagedUser = {
+  email: string;
+  role: UserRole;
+  display_name: string;
+  department: string;
+  job_title: string;
+  auth_source: "LOCAL" | "ACTIVE_DIRECTORY";
+  status: "ACTIVE" | "SUSPENDED";
+  last_login_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 function db(): D1Database {
   if (!env.DB) throw new Error("D1 binding DB is unavailable");
   return env.DB;
@@ -86,7 +99,14 @@ export async function ensureConfirmationStore() {
     d1.prepare(`CREATE TABLE IF NOT EXISTS admin_users (
       email TEXT PRIMARY KEY,
       role TEXT NOT NULL DEFAULT 'ADMINISTRATOR',
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      display_name TEXT NOT NULL DEFAULT '',
+      department TEXT NOT NULL DEFAULT '',
+      job_title TEXT NOT NULL DEFAULT '',
+      auth_source TEXT NOT NULL DEFAULT 'ACTIVE_DIRECTORY',
+      status TEXT NOT NULL DEFAULT 'ACTIVE',
+      last_login_at TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`),
     d1.prepare(`CREATE TABLE IF NOT EXISTS confirmations (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -220,6 +240,25 @@ async function migrateLegacyRolesAndColumns(d1: D1Database) {
       WHERE role IN ('SYSTEM_ADMIN', 'DATA_STEWARD')`)
     .run();
 
+  const userColumns = await d1
+    .prepare("PRAGMA table_info(admin_users)")
+    .all<{ name: string }>();
+  const userColumnNames = new Set(userColumns.results.map((column) => column.name));
+  const userMigrations = [
+    ["display_name", "TEXT NOT NULL DEFAULT ''"],
+    ["department", "TEXT NOT NULL DEFAULT ''"],
+    ["job_title", "TEXT NOT NULL DEFAULT ''"],
+    ["auth_source", "TEXT NOT NULL DEFAULT 'ACTIVE_DIRECTORY'"],
+    ["status", "TEXT NOT NULL DEFAULT 'ACTIVE'"],
+    ["last_login_at", "TEXT"],
+    ["updated_at", "TEXT NOT NULL DEFAULT ''"],
+  ] as const;
+  for (const [name, definition] of userMigrations) {
+    if (!userColumnNames.has(name)) {
+      await d1.prepare(`ALTER TABLE admin_users ADD COLUMN ${name} ${definition}`).run();
+    }
+  }
+
   const columns = await d1
     .prepare("PRAGMA table_info(confirmations)")
     .all<{ name: string }>();
@@ -285,18 +324,46 @@ export async function updateRoleMenuPermission(role: UserRole, menuId: MenuId, c
 
 export async function listUsers() {
   const result = await db()
-    .prepare("SELECT email, role, created_at FROM admin_users ORDER BY email")
-    .all<{ email: string; role: UserRole; created_at: string }>();
+    .prepare(`SELECT email, role, display_name, department, job_title,
+      auth_source, status, last_login_at, created_at, updated_at
+      FROM admin_users
+      ORDER BY CASE status WHEN 'ACTIVE' THEN 0 ELSE 1 END, display_name, email`)
+    .all<ManagedUser>();
   return result.results;
 }
 
-export async function upsertUser(email: string, role: UserRole) {
+export async function upsertUser(
+  email: string,
+  role: UserRole,
+  profile?: Partial<Omit<ManagedUser, "email" | "role" | "created_at" | "updated_at">>,
+) {
   if (!ROLES.includes(role)) throw new Error("Invalid role");
+  const displayName = profile?.display_name?.trim() ?? "";
+  const department = profile?.department?.trim() ?? "";
+  const jobTitle = profile?.job_title?.trim() ?? "";
+  const authSource = profile?.auth_source === "LOCAL" ? "LOCAL" : "ACTIVE_DIRECTORY";
+  const status = profile?.status === "SUSPENDED" ? "SUSPENDED" : "ACTIVE";
   await db()
-    .prepare(`INSERT INTO admin_users (email, role)
-      VALUES (?, ?)
-      ON CONFLICT(email) DO UPDATE SET role = excluded.role`)
-    .bind(email.trim().toLowerCase(), role)
+    .prepare(`INSERT INTO admin_users
+      (email, role, display_name, department, job_title, auth_source, status, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(email) DO UPDATE SET
+        role = excluded.role,
+        display_name = excluded.display_name,
+        department = excluded.department,
+        job_title = excluded.job_title,
+        auth_source = excluded.auth_source,
+        status = excluded.status,
+        updated_at = CURRENT_TIMESTAMP`)
+    .bind(
+      email.trim().toLowerCase(),
+      role,
+      displayName,
+      department,
+      jobTitle,
+      authSource,
+      status,
+    )
     .run();
 }
 

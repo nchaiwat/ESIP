@@ -91,7 +91,42 @@ type DashboardData = {
   generated_at?: string;
 };
 
-type UserRow = { email: string; role: Role; created_at: string };
+type UserRow = {
+  email: string;
+  role: Role;
+  display_name: string;
+  department: string;
+  job_title: string;
+  auth_source: "LOCAL" | "ACTIVE_DIRECTORY";
+  status: "ACTIVE" | "SUSPENDED";
+  last_login_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+type UserDraft = Pick<UserRow, "email" | "role" | "display_name" | "department" | "job_title" | "auth_source" | "status">;
+type SimulationAxis = {
+  key: string;
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  unit: string;
+  defaultValue: number;
+};
+type ModuleCard = {
+  number: string;
+  title: string;
+  status: string;
+  detail: string;
+  values: number[];
+  labels: string[];
+  value: string;
+  sub: string;
+  xAxis: string;
+  yAxis: string;
+  unit: string;
+  simulationAxes: SimulationAxis[];
+};
 type PermissionMatrix = Record<Role, Record<PageId, boolean>>;
 type ImportFile = { source: string; filename: string; size: number; modified_at: string; pending: boolean };
 type ImportEvent = { run_id: string; trigger: string; actor: string; status: string; started_at?: string; finished_at?: string; source?: string; filename?: string; detail?: string };
@@ -192,6 +227,16 @@ const defaultPermissions: PermissionMatrix = {
 const money = (value: number) =>
   new Intl.NumberFormat("th-TH", { maximumFractionDigits: 0 }).format(value || 0);
 
+const emptyUserDraft: UserDraft = {
+  email: "",
+  role: "USER",
+  display_name: "",
+  department: "",
+  job_title: "",
+  auth_source: "ACTIVE_DIRECTORY",
+  status: "ACTIVE",
+};
+
 export default function EsipApp() {
   const [active, setActive] = useState<PageId>("dashboard");
   const [auth, setAuth] = useState<ApiPayload | null>(null);
@@ -218,8 +263,10 @@ export default function EsipApp() {
   const [permissions, setPermissions] = useState<PermissionMatrix>(defaultPermissions);
   const [draftPermissions, setDraftPermissions] = useState<PermissionMatrix>(defaultPermissions);
   const [permissionsDirty, setPermissionsDirty] = useState(false);
-  const [newUserEmail, setNewUserEmail] = useState("");
-  const [newUserRole, setNewUserRole] = useState<Role>("USER");
+  const [userDraft, setUserDraft] = useState<UserDraft>(emptyUserDraft);
+  const [editingUser, setEditingUser] = useState<UserDraft | null>(null);
+  const [userSearch, setUserSearch] = useState("");
+  const [userStatusFilter, setUserStatusFilter] = useState<"ALL" | UserRow["status"]>("ALL");
   const [imports, setImports] = useState<ImportCenterData | null>(null);
   const [importSource, setImportSource] = useState("AUTO");
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
@@ -505,24 +552,25 @@ export default function EsipApp() {
     setMasterSuggestions((old) => ({ ...old, [String(item.id)]: payload.items ?? [] }));
   }
 
-  async function saveUser() {
-    const email = newUserEmail.trim().toLowerCase();
+  async function saveUser(draft = userDraft) {
+    const email = draft.email.trim().toLowerCase();
     if (!email.includes("@")) {
       setMessage("กรุณากรอกอีเมลให้ถูกต้อง");
       return;
     }
-    await saveUserRole(email, newUserRole);
-    setNewUserEmail("");
+    await saveUserProfile({ ...draft, email });
+    setUserDraft(emptyUserDraft);
+    setEditingUser(null);
   }
 
-  async function saveUserRole(email: string, role: Role) {
+  async function saveUserProfile(draft: UserDraft) {
     const response = await fetch("/api/users", {
       method: "POST",
       headers: {
         "content-type": "application/json",
         "x-esip-local-role": localRole,
       },
-      body: JSON.stringify({ email: email.trim().toLowerCase(), role }),
+      body: JSON.stringify(draft),
     });
     const payload = (await response.json()) as { users?: UserRow[]; error?: string };
     if (!response.ok) {
@@ -530,7 +578,7 @@ export default function EsipApp() {
       return;
     }
     setUsers(payload.users ?? []);
-    setMessage("บันทึก Role แล้ว");
+    setMessage("บันทึกข้อมูลผู้ใช้แล้ว");
   }
 
   async function deleteUserRole(email: string) {
@@ -627,24 +675,36 @@ export default function EsipApp() {
     };
   }, [cogsLift, coverage?.sales_amount, coverage?.sales_qty, priceLift, volumeLift]);
   const recentTrend = trend.slice(-12).map((row) => Number(row.net_amount) || 0);
+  const recentTrendLabels = trend.slice(-12).map((row) => row.sales_date);
   const productValues = (dashboard?.top_products ?? []).slice(0, 8).map((row) => Number(row.net_amount) || 0);
+  const productLabels = (dashboard?.top_products ?? []).slice(0, 8).map((row) => row.sap_item_code || row.source_sku);
   const branchValues = (dashboard?.top_branches ?? []).slice(0, 8).map((row) => Number(row.net_amount) || 0);
+  const branchLabels = (dashboard?.top_branches ?? []).slice(0, 8).map((row) => row.branch_source_name);
   const inventoryValues = (dashboard?.inventory ?? []).map((row) => Number(row.onhand_qty) || 0);
-  const moduleCards = [
-    { number: "01", title: "Executive Summary", status: "LIVE", detail: `${money(coverage?.sales_amount ?? 0)} sales`, values: recentTrend, value: money(latestDay?.net_amount ?? 0), sub: latestDay?.sales_date ?? "waiting" },
-    { number: "02", title: "Sales Performance", status: "LIVE", detail: "Daily / MTD trend and MT comparison", values: recentTrend, value: `${trend.length} days`, sub: `${dailyChange === null ? "N/A" : `${dailyChange >= 0 ? "+" : ""}${dailyChange.toFixed(1)}%`} vs prior day` },
-    { number: "03", title: "Product Intelligence", status: "LIVE", detail: "Top SKU, Product Mix and Mapping", values: productValues, value: money(dashboard?.top_products?.[0]?.net_amount ?? 0), sub: dashboard?.top_products?.[0]?.sap_item_code ?? "Top SKU" },
-    { number: "04", title: "Branch Intelligence", status: "LIVE", detail: "Top Branch and branch performance", values: branchValues, value: money(dashboard?.top_branches?.[0]?.net_amount ?? 0), sub: dashboard?.top_branches?.[0]?.branch_source_name ?? "Top branch" },
-    { number: "05", title: "Inventory Control", status: "LIVE", detail: "On Hand, Stock Value and freshness", values: inventoryValues, value: money(inventoryTotal), sub: `${dashboard?.inventory?.length ?? 0} MT snapshots` },
-    { number: "06", title: "Target Achievement", status: "SIM", detail: "Actual, target uplift, gap and %achievement", values: recentTrend.map((value) => value * (1 + priceLift / 100)), value: `${(100 + priceLift + volumeLift).toFixed(1)}%`, sub: "scenario target model" },
-    { number: "07", title: "Forecast & Run Rate", status: "SIM", detail: "Month-end run rate and trend assumption", values: recentTrend.map((value) => value * (1 + volumeLift / 100)), value: money((latestDay?.net_amount ?? 0) * 30), sub: "latest-day run rate" },
-    { number: "08", title: "Gross Profit", status: "SIM", detail: "GP, margin and COGS assumption", values: recentTrend.map((value) => value * (0.28 - cogsLift / 100)), value: `${simulation.margin.toFixed(1)}%`, sub: `${money(simulation.simulatedGp)} GP` },
-    { number: "09", title: "YoY Comparison", status: "LIVE", detail: "2025 vs 2026 where dates overlap", values: recentTrend, value: coverage?.first_date?.startsWith("2025") ? "READY" : "WAIT", sub: "loaded history starts 2025" },
-    { number: "10", title: "Stock Aging", status: "SIM", detail: "Aging bucket and slow-moving proxy", values: inventoryValues.map((value) => value * (1 - volumeLift / 100)), value: money(inventoryTotal * Math.max(0, volumeLift) / 100), sub: "demand-driven proxy" },
-    { number: "11", title: "On Order & Supply", status: "SIM", detail: "PO, on order and supply uplift assumption", values: inventoryValues.map((value) => value * (1 + cogsLift / 100)), value: money(inventoryTotal * Math.max(0, cogsLift) / 100), sub: "supply assumption" },
-    { number: "12", title: "Data Quality Center", status: "LIVE", detail: "Freshness, missing amount and approval queue", values: [dashboard?.data_quality.length ?? 0, queueTotal, dashboard?.publication_queue_total ?? 0], value: money(queueTotal), sub: "approval queue" },
+  const inventoryLabels = (dashboard?.inventory ?? []).map((row) => `${row.source_code} ${row.snapshot_date}`);
+  const pctAxis = (key: string, label: string, min = -20, max = 20, step = 0.5): SimulationAxis => ({
+    key, label, min, max, step, unit: "%", defaultValue: 0,
+  });
+  const moduleCards: ModuleCard[] = [
+    { number: "01", title: "Executive Summary", status: "LIVE", detail: `${money(coverage?.sales_amount ?? 0)} sales`, values: recentTrend, labels: recentTrendLabels, value: money(latestDay?.net_amount ?? 0), sub: latestDay?.sales_date ?? "รอข้อมูล", xAxis: "วันที่ขาย", yAxis: "ยอดขายสุทธิ", unit: "บาท", simulationAxes: [pctAxis("price", "ราคาขาย"), pctAxis("volume", "จำนวนขาย"), pctAxis("coverage", "MT coverage", -30, 30, 1)] },
+    { number: "02", title: "Sales Performance", status: "LIVE", detail: "แนวโน้มยอดขายรายวัน / MTD และเปรียบเทียบ MT", values: recentTrend, labels: recentTrendLabels, value: `${trend.length} วัน`, sub: `${dailyChange === null ? "N/A" : `${dailyChange >= 0 ? "+" : ""}${dailyChange.toFixed(1)}%`} เทียบวันก่อน`, xAxis: "วันที่ขาย", yAxis: "ยอดขายสุทธิ", unit: "บาท", simulationAxes: [pctAxis("price", "ราคาขาย"), pctAxis("volume", "จำนวนขาย"), pctAxis("seasonality", "Seasonality", -30, 30, 1), pctAxis("promotion", "Promotion uplift", 0, 40, 1)] },
+    { number: "03", title: "Product Intelligence", status: "LIVE", detail: "Top SKU, Product Mix และ Product Mapping", values: productValues, labels: productLabels, value: money(dashboard?.top_products?.[0]?.net_amount ?? 0), sub: dashboard?.top_products?.[0]?.sap_item_code ?? "Top SKU", xAxis: "สินค้า (SAP Item Code)", yAxis: "ยอดขายสุทธิ", unit: "บาท", simulationAxes: [pctAxis("price", "ราคาขาย"), pctAxis("mix", "Product mix"), pctAxis("promotion", "Promotion uplift", 0, 40, 1), pctAxis("availability", "สินค้าไม่ขาดสต็อก", 0, 25, 1)] },
+    { number: "04", title: "Branch Intelligence", status: "LIVE", detail: "ผลงานและอันดับสาขา", values: branchValues, labels: branchLabels, value: money(dashboard?.top_branches?.[0]?.net_amount ?? 0), sub: dashboard?.top_branches?.[0]?.branch_source_name ?? "Top branch", xAxis: "สาขา", yAxis: "ยอดขายสุทธิ", unit: "บาท", simulationAxes: [pctAxis("traffic", "จำนวนลูกค้า"), pctAxis("conversion", "Conversion rate"), pctAxis("basket", "Basket size"), pctAxis("coverage", "จำนวนสาขาที่ขาย", -30, 30, 1)] },
+    { number: "05", title: "Inventory Control", status: "LIVE", detail: "On Hand, Stock Value และความสดใหม่ของ Snapshot", values: inventoryValues, labels: inventoryLabels, value: money(inventoryTotal), sub: `${dashboard?.inventory?.length ?? 0} MT snapshots`, xAxis: "MT / วันที่ Snapshot", yAxis: "จำนวน On Hand", unit: "ชิ้น", simulationAxes: [pctAxis("demand", "Demand"), pctAxis("safety", "Safety stock", -50, 100, 1), pctAxis("leadtime", "Lead time", -30, 60, 1), pctAxis("shrinkage", "Shrinkage", 0, 10, 0.1)] },
+    { number: "06", title: "Target Achievement", status: "SIM", detail: "ยอดจริง เป้าหมาย Gap และ %Achievement", values: recentTrend.map((value) => value * (1 + priceLift / 100)), labels: recentTrendLabels, value: `${(100 + priceLift + volumeLift).toFixed(1)}%`, sub: "แบบจำลองเป้าหมาย", xAxis: "วันที่ขาย", yAxis: "ยอดขายเทียบเป้าหมาย", unit: "บาท", simulationAxes: [pctAxis("target", "เป้าหมาย"), pctAxis("price", "ราคาขาย"), pctAxis("volume", "จำนวนขาย"), pctAxis("workingDays", "จำนวนวันขาย", -20, 20, 1)] },
+    { number: "07", title: "Forecast & Run Rate", status: "SIM", detail: "ประมาณการสิ้นเดือนและแนวโน้ม Run Rate", values: recentTrend.map((value) => value * (1 + volumeLift / 100)), labels: recentTrendLabels, value: money((latestDay?.net_amount ?? 0) * 30), sub: "Latest-day run rate", xAxis: "วันที่ขาย", yAxis: "ยอดขายคาดการณ์", unit: "บาท", simulationAxes: [pctAxis("trend", "Trend"), pctAxis("seasonality", "Seasonality", -30, 30, 1), pctAxis("promotion", "Promotion uplift", 0, 40, 1), pctAxis("risk", "Forecast risk", -30, 0, 1)] },
+    { number: "08", title: "Gross Profit", status: "SIM", detail: "GP, Margin และสมมติฐาน COGS", values: recentTrend.map((value) => value * (0.28 - cogsLift / 100)), labels: recentTrendLabels, value: `${simulation.margin.toFixed(1)}%`, sub: `${money(simulation.simulatedGp)} GP`, xAxis: "วันที่ขาย", yAxis: "กำไรขั้นต้น", unit: "บาท", simulationAxes: [pctAxis("price", "ราคาขาย"), pctAxis("volume", "จำนวนขาย"), pctAxis("cogs", "COGS"), pctAxis("discount", "ส่วนลด", 0, 20, 0.5)] },
+    { number: "09", title: "YoY Comparison", status: "LIVE", detail: "เปรียบเทียบช่วงเวลาเดียวกันระหว่างปี", values: recentTrend, labels: recentTrendLabels, value: coverage?.first_date?.startsWith("2025") ? "READY" : "WAIT", sub: "ประวัติข้อมูลเริ่มปี 2025", xAxis: "วันที่ขาย", yAxis: "ยอดขายสุทธิ", unit: "บาท", simulationAxes: [pctAxis("growth", "Growth"), pctAxis("calendar", "ผลต่างวันทำการ", -20, 20, 1), pctAxis("price", "ราคาขาย"), pctAxis("volume", "จำนวนขาย")] },
+    { number: "10", title: "Stock Aging", status: "SIM", detail: "Aging bucket และ Slow-moving proxy", values: inventoryValues.map((value) => value * (1 - volumeLift / 100)), labels: inventoryLabels, value: money(inventoryTotal * Math.max(0, volumeLift) / 100), sub: "Demand-driven proxy", xAxis: "MT / วันที่ Snapshot", yAxis: "จำนวนสินค้าคงเหลือ", unit: "ชิ้น", simulationAxes: [pctAxis("demand", "Demand"), pctAxis("markdown", "Markdown", 0, 50, 1), pctAxis("writeoff", "Write-off", 0, 30, 1), pctAxis("transfer", "โอนสินค้าระหว่างสาขา", 0, 40, 1)] },
+    { number: "11", title: "On Order & Supply", status: "SIM", detail: "PO, On Order และสมมติฐาน Supply", values: inventoryValues.map((value) => value * (1 + cogsLift / 100)), labels: inventoryLabels, value: money(inventoryTotal * Math.max(0, cogsLift) / 100), sub: "Supply assumption", xAxis: "MT / วันที่ Snapshot", yAxis: "จำนวน Supply", unit: "ชิ้น", simulationAxes: [pctAxis("purchase", "ปริมาณสั่งซื้อ", -50, 100, 1), pctAxis("leadtime", "Lead time", -30, 60, 1), pctAxis("fillrate", "Supplier fill rate", -30, 20, 1), pctAxis("cancellation", "PO cancellation", 0, 30, 1)] },
+    { number: "12", title: "Data Quality Center", status: "LIVE", detail: "Freshness, Missing Amount และ Approval Queue", values: [dashboard?.data_quality.length ?? 0, queueTotal, dashboard?.publication_queue_total ?? 0], labels: ["Quality issues", "Approval queue", "Publication queue"], value: money(queueTotal), sub: "Approval queue", xAxis: "ประเภทปัญหา", yAxis: "จำนวนรายการ", unit: "รายการ", simulationAxes: [pctAxis("freshness", "ปรับเกณฑ์ Freshness", -50, 100, 1), pctAxis("tolerance", "Missing tolerance", -50, 100, 1), pctAxis("automation", "Auto approval", 0, 100, 1)] },
   ];
   const expandedModuleCard = moduleCards.find((card) => card.number === expandedModule) ?? null;
+  const filteredUsers = users.filter((user) => {
+    const haystack = `${user.display_name} ${user.email} ${user.department} ${user.job_title} ${user.role}`.toLowerCase();
+    return haystack.includes(userSearch.trim().toLowerCase())
+      && (userStatusFilter === "ALL" || user.status === userStatusFilter);
+  });
 
   return (
     <div className="app-shell">
@@ -1048,27 +1108,67 @@ export default function EsipApp() {
             />
             <article className="panel user-management">
               <div className="panel-head">
-                <div><p className="eyebrow">USER MANAGEMENT</p><h3>จัดการ User และ Role</h3></div>
-                <span className="status-pill">ADMIN EDITABLE</span>
+                <div>
+                  <p className="eyebrow">USER MANAGEMENT</p>
+                  <h3>ผู้ใช้งานและสถานะการเข้าถึง</h3>
+                  <p className="panel-description">จัดการข้อมูลผู้ใช้ แผนก ตำแหน่ง วิธีเข้าสู่ระบบ สถานะ และ Role จากจุดเดียว</p>
+                </div>
+                <button className="approve" onClick={() => setEditingUser({ ...emptyUserDraft })}>+ เพิ่มผู้ใช้</button>
               </div>
-              <div className="user-form">
-                <input type="email" value={newUserEmail} onChange={(event) => setNewUserEmail(event.target.value)} placeholder="name@company.com" />
-                <select value={newUserRole} onChange={(event) => setNewUserRole(event.target.value as Role)}><option value="ADMINISTRATOR">Administrator</option><option value="SALE_ADMIN">Sale Admin</option><option value="USER">User</option></select>
-                <button className="approve" onClick={saveUser}>Add user</button>
+              <div className="user-toolbar">
+                <label>
+                  <span>ค้นหาผู้ใช้</span>
+                  <input value={userSearch} onChange={(event) => setUserSearch(event.target.value)} placeholder="ชื่อ อีเมล แผนก ตำแหน่ง หรือ Role" />
+                </label>
+                <label>
+                  <span>สถานะ</span>
+                  <select value={userStatusFilter} onChange={(event) => setUserStatusFilter(event.target.value as typeof userStatusFilter)}>
+                    <option value="ALL">ทั้งหมด</option>
+                    <option value="ACTIVE">ใช้งานอยู่</option>
+                    <option value="SUSPENDED">ระงับใช้งาน</option>
+                  </select>
+                </label>
               </div>
-              <div className="user-list management-list">
-                {users.length === 0 && <div className="empty">ยังไม่มีผู้ใช้ที่กำหนด Role</div>}
-                {users.map((user) => (
-                  <div key={user.email}>
-                    <span><strong>{user.email}</strong><small>สร้างเมื่อ {user.created_at}</small></span>
-                    <select value={user.role} onChange={(event) => saveUserRole(user.email, event.target.value as Role)}>
-                      <option value="ADMINISTRATOR">Administrator</option>
-                      <option value="SALE_ADMIN">Sale Admin</option>
-                      <option value="USER">User</option>
-                    </select>
-                    <button className="reject" onClick={() => deleteUserRole(user.email)}>Delete</button>
-                  </div>
-                ))}
+              <div className="user-summary">
+                <span><strong>{users.length}</strong> ผู้ใช้ทั้งหมด</span>
+                <span><strong>{users.filter((user) => user.status === "ACTIVE").length}</strong> ใช้งานอยู่</span>
+                <span><strong>{users.filter((user) => user.auth_source === "ACTIVE_DIRECTORY").length}</strong> เชื่อม Windows AD</span>
+              </div>
+              <div className="user-table-wrap">
+                <table className="user-table">
+                  <thead><tr><th>ผู้ใช้</th><th>Role / แผนก</th><th>เข้าสู่ระบบ</th><th>สถานะ</th><th>เข้าใช้ล่าสุด</th><th>จัดการ</th></tr></thead>
+                  <tbody>
+                    {filteredUsers.map((user) => (
+                      <tr key={user.email}>
+                        <td>
+                          <span className="user-identity">
+                            <b className="avatar">{(user.display_name || user.email).slice(0, 2).toUpperCase()}</b>
+                            <span><strong>{user.display_name || "ยังไม่ได้ระบุชื่อ"}</strong><small>{user.email}</small></span>
+                          </span>
+                        </td>
+                        <td><strong>{roleLabels[user.role]}</strong><small>{[user.department, user.job_title].filter(Boolean).join(" · ") || "ยังไม่ได้ระบุ"}</small></td>
+                        <td><span className="auth-source">{user.auth_source === "ACTIVE_DIRECTORY" ? "Windows AD" : "Local"}</span></td>
+                        <td><span className={`user-status ${user.status.toLowerCase()}`}>{user.status === "ACTIVE" ? "ใช้งานอยู่" : "ระงับใช้งาน"}</span></td>
+                        <td><span>{user.last_login_at || "ยังไม่มีข้อมูล"}</span><small>สร้าง {user.created_at}</small></td>
+                        <td>
+                          <div className="row-actions">
+                            <button className="module-open" onClick={() => setEditingUser({
+                              email: user.email,
+                              role: user.role,
+                              display_name: user.display_name,
+                              department: user.department,
+                              job_title: user.job_title,
+                              auth_source: user.auth_source,
+                              status: user.status,
+                            })}>แก้ไข</button>
+                            <button className="reject" onClick={() => deleteUserRole(user.email)}>ลบ</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {filteredUsers.length === 0 && <div className="empty">ไม่พบผู้ใช้ตามเงื่อนไขที่เลือก</div>}
               </div>
             </article>
           </section>
@@ -1079,6 +1179,15 @@ export default function EsipApp() {
             card={expandedModuleCard}
             money={money}
             onClose={() => setExpandedModule(null)}
+          />
+        )}
+        {editingUser && (
+          <UserEditor
+            draft={editingUser}
+            isNew={!users.some((user) => user.email === editingUser.email)}
+            onCancel={() => setEditingUser(null)}
+            onChange={setEditingUser}
+            onSave={() => saveUser(editingUser)}
           />
         )}
       </main>
@@ -1230,6 +1339,7 @@ function ScenarioDashboardCard({
 }
 
 function DashboardModuleCard({
+  labels,
   detail,
   number,
   onOpen,
@@ -1238,15 +1348,11 @@ function DashboardModuleCard({
   title,
   value,
   values,
-}: {
-  detail: string;
-  number: string;
+  xAxis,
+  yAxis,
+  unit,
+}: ModuleCard & {
   onOpen: () => void;
-  status: string;
-  sub: string;
-  title: string;
-  value: string;
-  values: number[];
 }) {
   const max = Math.max(...values.map((item) => Math.abs(Number(item) || 0)), 1);
   const mode = status === "LIVE" ? "live" : "model";
@@ -1254,10 +1360,11 @@ function DashboardModuleCard({
     <article className={`module-card ${mode}`}>
       <span>{number}</span><b>{status}</b>
       <h4>{title}</h4>
-      <div className="module-spark" aria-hidden="true">
+      <div className="module-spark" role="img" aria-label={`${yAxis} แยกตาม ${xAxis}`}>
         {values.slice(-12).map((item, index) => (
           <i
             key={`${number}-${index}`}
+            title={`${labels.slice(-12)[index] ?? index + 1}: ${money(item)} ${unit}`}
             style={{ height: `${Math.max((Math.abs(item) / max) * 100, 6)}%` }}
           />
         ))}
@@ -1275,19 +1382,21 @@ function ModuleDetailModal({
   money,
   onClose,
 }: {
-  card: {
-    detail: string;
-    number: string;
-    status: string;
-    sub: string;
-    title: string;
-    value: string;
-    values: number[];
-  };
+  card: ModuleCard;
   money: (value: number) => string;
   onClose: () => void;
 }) {
-  const max = Math.max(...card.values.map((value) => Math.abs(value)), 1);
+  const [scenarioValues, setScenarioValues] = useState<Record<string, number>>(() =>
+    Object.fromEntries(card.simulationAxes.map((axis) => [axis.key, axis.defaultValue])),
+  );
+  const scenarioFactor = card.simulationAxes.reduce((factor, axis) => {
+    const value = scenarioValues[axis.key] ?? 0;
+    const negativeImpact = ["cogs", "discount", "risk", "shrinkage", "writeoff", "leadtime", "cancellation"].includes(axis.key);
+    return factor * (1 + (negativeImpact ? -value : value) / 100);
+  }, 1);
+  const simulatedValues = card.values.map((value) => value * Math.max(0, scenarioFactor));
+  const baselineTotal = card.values.reduce((sum, value) => sum + value, 0);
+  const simulatedTotal = simulatedValues.reduce((sum, value) => sum + value, 0);
   return (
     <div className="module-modal-backdrop" role="dialog" aria-modal="true" aria-label={card.title}>
       <article className="module-modal">
@@ -1296,25 +1405,152 @@ function ModuleDetailModal({
             <p className="eyebrow">{card.status} MODULE {card.number}</p>
             <h3>{card.title}</h3>
           </div>
-          <button className="reject" onClick={onClose}>Close</button>
+          <button className="reject" onClick={onClose}>ปิด</button>
         </div>
-        <div className="module-modal-body">
-          <div className="module-big-chart">
-            {card.values.slice(-30).map((value, index) => (
-              <i
-                key={`${card.number}-modal-${index}`}
-                title={money(value)}
-                style={{ height: `${Math.max((Math.abs(value) / max) * 100, 4)}%` }}
-              />
-            ))}
+        <div className="module-chart-meta">
+          <span><b>แกน X</b>{card.xAxis}</span>
+          <span><b>แกน Y</b>{card.yAxis} ({card.unit})</span>
+          <span><b>ข้อมูล</b>{card.labels.length} จุด</span>
+        </div>
+        <ReadableBarChart
+          labels={card.labels}
+          baseline={card.values}
+          scenario={simulatedValues}
+          unit={card.unit}
+          xAxis={card.xAxis}
+          yAxis={card.yAxis}
+          money={money}
+        />
+        <div className="module-detail-grid">
+          <div className="module-simulation">
+            <div className="panel-head">
+              <div><p className="eyebrow">MODULE SIMULATION</p><h4>ปรับสมมติฐานของ {card.title}</h4></div>
+              <button className="module-open" onClick={() => setScenarioValues(Object.fromEntries(card.simulationAxes.map((axis) => [axis.key, axis.defaultValue])))}>คืนค่าเริ่มต้น</button>
+            </div>
+            <div className="module-simulation-controls">
+              {card.simulationAxes.map((axis) => (
+                <SliderControl
+                  key={axis.key}
+                  label={axis.label}
+                  min={axis.min}
+                  max={axis.max}
+                  step={axis.step}
+                  suffix={axis.unit}
+                  value={scenarioValues[axis.key] ?? axis.defaultValue}
+                  onChange={(value) => setScenarioValues((current) => ({ ...current, [axis.key]: value }))}
+                />
+              ))}
+            </div>
           </div>
           <div className="module-modal-summary">
-            <span>Current value</span>
+            <span>ค่าปัจจุบัน</span>
             <strong>{card.value}</strong>
             <small>{card.sub}</small>
+            <dl>
+              <div><dt>ผลรวมฐาน</dt><dd>{money(baselineTotal)} {card.unit}</dd></div>
+              <div><dt>ผลรวมจำลอง</dt><dd>{money(simulatedTotal)} {card.unit}</dd></div>
+              <div><dt>ผลต่าง</dt><dd className={simulatedTotal >= baselineTotal ? "positive" : "negative"}>{simulatedTotal >= baselineTotal ? "+" : ""}{money(simulatedTotal - baselineTotal)} {card.unit}</dd></div>
+            </dl>
             <p>{card.detail}</p>
           </div>
         </div>
+      </article>
+    </div>
+  );
+}
+
+function ReadableBarChart({
+  baseline,
+  labels,
+  money,
+  scenario,
+  unit,
+  xAxis,
+  yAxis,
+}: {
+  baseline: number[];
+  labels: string[];
+  money: (value: number) => string;
+  scenario: number[];
+  unit: string;
+  xAxis: string;
+  yAxis: string;
+}) {
+  const count = Math.min(baseline.length, 16);
+  const base = baseline.slice(-count);
+  const simulated = scenario.slice(-count);
+  const visibleLabels = labels.slice(-count);
+  const max = Math.max(...base, ...simulated, 1);
+  const left = 86;
+  const top = 22;
+  const width = 760;
+  const height = 250;
+  const groupWidth = count ? width / count : width;
+  const barWidth = Math.max(4, Math.min(18, groupWidth * 0.28));
+  const ticks = [0, 0.25, 0.5, 0.75, 1];
+  return (
+    <figure className="readable-chart">
+      <div className="chart-legend"><span><i className="baseline" />ข้อมูลจริง</span><span><i className="scenario" />ค่าจำลอง</span></div>
+      <svg viewBox="0 0 900 350" role="img" aria-label={`${yAxis} ตาม ${xAxis}`}>
+        <title>{`${yAxis} ตาม ${xAxis}`}</title>
+        {ticks.map((tick) => {
+          const y = top + height - tick * height;
+          return <g key={tick}><line x1={left} x2={left + width} y1={y} y2={y} className="grid-line" /><text x={left - 10} y={y + 4} textAnchor="end">{money(max * tick)}</text></g>;
+        })}
+        <line x1={left} x2={left} y1={top} y2={top + height} className="axis-line" />
+        <line x1={left} x2={left + width} y1={top + height} y2={top + height} className="axis-line" />
+        {base.map((value, index) => {
+          const x = left + index * groupWidth + groupWidth / 2;
+          const baseHeight = (Math.max(0, value) / max) * height;
+          const scenarioHeight = (Math.max(0, simulated[index] ?? value) / max) * height;
+          const label = visibleLabels[index] || `จุด ${index + 1}`;
+          return (
+            <g key={`${label}-${index}`}>
+              <rect className="bar-baseline" x={x - barWidth - 1} y={top + height - baseHeight} width={barWidth} height={baseHeight}><title>{`${label} · ข้อมูลจริง ${money(value)} ${unit}`}</title></rect>
+              <rect className="bar-scenario" x={x + 1} y={top + height - scenarioHeight} width={barWidth} height={scenarioHeight}><title>{`${label} · ค่าจำลอง ${money(simulated[index] ?? value)} ${unit}`}</title></rect>
+              <text className="x-tick" x={x} y={top + height + 19} textAnchor="end" transform={`rotate(-35 ${x} ${top + height + 19})`}>{label.length > 14 ? `${label.slice(0, 12)}…` : label}</text>
+            </g>
+          );
+        })}
+        <text className="axis-title" x={left + width / 2} y={342} textAnchor="middle">{xAxis}</text>
+        <text className="axis-title" x={18} y={top + height / 2} textAnchor="middle" transform={`rotate(-90 18 ${top + height / 2})`}>{yAxis} ({unit})</text>
+      </svg>
+    </figure>
+  );
+}
+
+function UserEditor({
+  draft,
+  isNew,
+  onCancel,
+  onChange,
+  onSave,
+}: {
+  draft: UserDraft;
+  isNew: boolean;
+  onCancel: () => void;
+  onChange: (draft: UserDraft) => void;
+  onSave: () => void;
+}) {
+  const update = <K extends keyof UserDraft>(key: K, value: UserDraft[K]) => onChange({ ...draft, [key]: value });
+  return (
+    <div className="module-modal-backdrop" role="dialog" aria-modal="true" aria-label={isNew ? "เพิ่มผู้ใช้" : "แก้ไขผู้ใช้"}>
+      <article className="user-editor">
+        <div className="panel-head">
+          <div><p className="eyebrow">USER PROFILE</p><h3>{isNew ? "เพิ่มผู้ใช้ใหม่" : `แก้ไข ${draft.display_name || draft.email}`}</h3></div>
+          <button className="reject" onClick={onCancel}>ปิด</button>
+        </div>
+        <div className="user-editor-grid">
+          <label><span>ชื่อที่แสดง</span><input value={draft.display_name} onChange={(event) => update("display_name", event.target.value)} placeholder="ชื่อ นามสกุล" /></label>
+          <label><span>อีเมล</span><input type="email" disabled={!isNew} value={draft.email} onChange={(event) => update("email", event.target.value)} placeholder="name@company.com" /></label>
+          <label><span>แผนก</span><input value={draft.department} onChange={(event) => update("department", event.target.value)} placeholder="เช่น Sales, IT, Finance" /></label>
+          <label><span>ตำแหน่ง</span><input value={draft.job_title} onChange={(event) => update("job_title", event.target.value)} placeholder="เช่น Manager, Analyst" /></label>
+          <label><span>Role</span><select value={draft.role} onChange={(event) => update("role", event.target.value as Role)}><option value="ADMINISTRATOR">Administrator</option><option value="SALE_ADMIN">Sale Admin</option><option value="USER">User</option></select></label>
+          <label><span>วิธีเข้าสู่ระบบ</span><select value={draft.auth_source} onChange={(event) => update("auth_source", event.target.value as UserDraft["auth_source"])}><option value="ACTIVE_DIRECTORY">Windows Active Directory</option><option value="LOCAL">Local account</option></select></label>
+          <label><span>สถานะ</span><select value={draft.status} onChange={(event) => update("status", event.target.value as UserDraft["status"])}><option value="ACTIVE">ใช้งานอยู่</option><option value="SUSPENDED">ระงับใช้งาน</option></select></label>
+        </div>
+        <div className="editor-note">ระบบจะใช้ Role ร่วมกับ Authorize Matrix ในการกำหนดเมนูที่ผู้ใช้นี้เปิดดูได้</div>
+        <div className="editor-actions"><button className="reject" onClick={onCancel}>ยกเลิก</button><button className="approve" onClick={onSave}>บันทึกข้อมูล</button></div>
       </article>
     </div>
   );
@@ -1368,7 +1604,7 @@ function SourceStatusBoard({
               <span>{latestSales ?? "รอข้อมูล"}</span>
               <span>{latestInventory ?? "รอข้อมูล"}</span>
               <span className={`source-status ${status}`}>{lagDays === null ? "WAITING" : `${lagDays} DAYS`}</span>
-              <span>{availableDays > 0 ? `${availableDays} ???` : "0 ???"}</span>
+              <span>{availableDays > 0 ? `${availableDays} วัน` : "0 วัน"}</span>
               <span>{money(pendingBySource.get(source.code) ?? 0)} ไฟล์</span>
               {detailed && <><code>{source.local}</code><code>{source.nas}</code></>}
             </div>
