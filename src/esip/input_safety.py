@@ -17,7 +17,7 @@ SOURCE_FOLDERS = (
     ("TA", Path("SourceFiles/TA/incoming")),
 )
 DATA_SUFFIXES = {".xlsx", ".xls", ".csv", ".zip"}
-DEFAULT_MAX_HASH_FILES = 1500
+DEFAULT_MAX_HASH_FILES = 300
 DATE_PATTERN = re.compile(
     r"(?:20\d{2}[-_]?\d{2}[-_]?\d{2}|\d{2}[-_]\d{2}[-_]20\d{2}|\d{8})"
 )

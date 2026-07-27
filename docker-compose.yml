@@ -5,7 +5,9 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.bridge
+    command: ["python", "/workspace/docker/apply_bridge.py"]
     environment:
+      PYTHONPATH: /workspace/src
       ESIP_WORKSPACE: /workspace
       ESIP_APPLY_TOKEN: esip-local-apply-token
       ESIP_DATABASE_URL: postgresql://${ESIP_POSTGRES_USER}:${ESIP_POSTGRES_PASSWORD}@host.docker.internal:${ESIP_POSTGRES_PORT}/${ESIP_POSTGRES_DB}

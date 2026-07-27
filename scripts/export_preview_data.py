@@ -12,6 +12,45 @@ from esip.input_safety import evaluate_input_file_safety
 from esip.postgres import database_url
 
 
+REFERENCE_COVERAGE = [
+    {
+        "report": "Daily / Monthly Sales Trend",
+        "status": "AVAILABLE",
+        "note": "Uses all Daily Raw dates currently loaded",
+    },
+    {
+        "report": "MT Comparison, Top Branch, Top SKU",
+        "status": "AVAILABLE",
+        "note": "Current available period",
+    },
+    {
+        "report": "Stock on Hand",
+        "status": "AVAILABLE",
+        "note": "Latest snapshot for each MT",
+    },
+    {
+        "report": "YoY 2025 vs 2026",
+        "status": "AVAILABLE",
+        "note": "Available where 2025 and 2026 dates overlap",
+    },
+    {
+        "report": "Gross Profit / Margin",
+        "status": "SIMULATION_MODEL",
+        "note": "Uses COGS assumption until actual cost is connected",
+    },
+    {
+        "report": "Target / Forecast / Achievement",
+        "status": "SIMULATION_MODEL",
+        "note": "Uses target uplift and run-rate assumptions until target files arrive",
+    },
+    {
+        "report": "Stock on Order / Last Receive",
+        "status": "SIMULATION_MODEL",
+        "note": "Uses supply uplift assumption until order and receipt history arrives",
+    },
+]
+
+
 def _json_value(value: object) -> object:
     if isinstance(value, Decimal):
         return float(value)
@@ -71,9 +110,66 @@ def _sort_branch_review_queue(
     )
 
 
+def _sum(rows: list[dict[str, object]], key: str) -> float:
+    return sum(_number(row.get(key)) for row in rows)
+
+
+def _build_dashboard_summary(payload: dict[str, object]) -> dict[str, object]:
+    trend = list(payload.get("trend", []))
+    source_sales = list(payload.get("source_sales", []))
+    top_branches = list(payload.get("top_branches", []))
+    top_products = list(payload.get("top_products", []))
+    inventory = list(payload.get("inventory", []))
+    data_quality = [
+        row
+        for row in payload.get("source_sales", [])
+        if _number(row.get("net_amount")) == 0 and _number(row.get("net_qty")) > 0
+    ]
+    trend_dates = [str(row.get("sales_date")) for row in trend if row.get("sales_date")]
+    coverage = {
+        "first_date": trend_dates[0] if trend_dates else None,
+        "last_date": trend_dates[-1] if trend_dates else None,
+        "available_days": len(trend_dates),
+        "sales_rows": int(
+            _sum(
+                [
+                    row
+                    for row in payload.get("coverage", [])
+                    if row.get("dataset") == "sales"
+                ],
+                "staged_rows",
+            )
+        ),
+        "sales_qty": _sum(trend, "net_qty"),
+        "sales_amount": _sum(trend, "net_amount"),
+    }
+    return {
+        "coverage": coverage,
+        "trend": trend,
+        "source_sales": source_sales,
+        "top_branches": top_branches,
+        "top_products": top_products,
+        "inventory": inventory,
+        "data_quality": [
+            {
+                "source_code": row.get("source_code"),
+                "issue": "SALES_AMOUNT_ZERO",
+                "affected_rows": row.get("net_qty"),
+            }
+            for row in data_quality
+        ],
+        "reference_coverage": REFERENCE_COVERAGE,
+        "approval_queue_total": len(payload.get("product_queue", []))
+        + len(payload.get("branch_queue", [])),
+        "publication_queue_total": len(payload.get("publication_queue", [])),
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+    }
+
+
 def main() -> None:
     root = Path(__file__).resolve().parents[1]
     output = root / ".tmp_review" / "preview_data.json"
+    dashboard_output = root / ".tmp_review" / "dashboard_data.json"
     output.parent.mkdir(parents=True, exist_ok=True)
     with psycopg.connect(database_url(root)) as connection:
         with connection.cursor() as cursor:
@@ -182,9 +278,16 @@ def main() -> None:
                 ),
                 "quarantine": _query(
                     cursor,
-                    """SELECT source_code, dataset, reason_code, affected_rows
-                    FROM vw_quarantine_operations
-                    ORDER BY affected_rows DESC, source_code, dataset""",
+                    """SELECT b.source_code, r.dataset,
+                    CASE WHEN SUM(r.quarantined_rows) > 0
+                         THEN 'QUARANTINED_ROWS'
+                         ELSE 'NO_QUARANTINE' END AS reason_code,
+                    SUM(r.quarantined_rows) AS affected_rows
+                    FROM import_batch b
+                    JOIN batch_reconciliation r USING(import_batch_id)
+                    GROUP BY b.source_code, r.dataset
+                    HAVING SUM(r.quarantined_rows) > 0
+                    ORDER BY affected_rows DESC, b.source_code, r.dataset""",
                 ),
             }
     for key, filename in (
@@ -202,6 +305,11 @@ def main() -> None:
     )
     payload["candidate_quality"] = json.loads(
         quality_path.read_text(encoding="utf-8")
+    )
+    dashboard_summary = _build_dashboard_summary(payload)
+    dashboard_output.write_text(
+        json.dumps(dashboard_summary, ensure_ascii=False, indent=2),
+        encoding="utf-8",
     )
     payload["input_safety"] = evaluate_input_file_safety(root)
     output.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")

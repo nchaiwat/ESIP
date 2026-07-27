@@ -338,7 +338,20 @@ def validate_override_candidate(queue_kind: str, candidate: str) -> None:
                 raise ValueError(f"{candidate} was not found in {label}")
 
 
+def dashboard_summary_file() -> dict[str, object] | None:
+    path = ROOT / ".tmp_review" / "dashboard_data.json"
+    if not path.is_file():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+
+
 def dashboard_data() -> dict[str, object]:
+    summary = dashboard_summary_file()
+    if summary is not None:
+        return summary
     with psycopg.connect(database_url(ROOT)) as connection:
         with connection.cursor() as cursor:
             return {
