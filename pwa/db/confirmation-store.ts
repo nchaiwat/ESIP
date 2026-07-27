@@ -300,6 +300,24 @@ export async function upsertUser(email: string, role: UserRole) {
     .run();
 }
 
+export async function deleteUser(email: string) {
+  const normalized = email.trim().toLowerCase();
+  const row = await db()
+    .prepare("SELECT role FROM admin_users WHERE email = ?")
+    .bind(normalized)
+    .first<{ role: UserRole }>();
+  if (!row) return;
+  if (row.role === "ADMINISTRATOR") {
+    const count = await db()
+      .prepare("SELECT COUNT(*) AS count FROM admin_users WHERE role = 'ADMINISTRATOR'")
+      .first<{ count: number }>();
+    if ((count?.count ?? 0) <= 1) {
+      throw new Error("At least one Administrator must remain");
+    }
+  }
+  await db().prepare("DELETE FROM admin_users WHERE email = ?").bind(normalized).run();
+}
+
 export async function listConfirmations() {
   const result = await db()
     .prepare(`SELECT * FROM confirmations

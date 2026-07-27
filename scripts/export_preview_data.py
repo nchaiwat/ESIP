@@ -120,6 +120,7 @@ def _build_dashboard_summary(payload: dict[str, object]) -> dict[str, object]:
     top_branches = list(payload.get("top_branches", []))
     top_products = list(payload.get("top_products", []))
     inventory = list(payload.get("inventory", []))
+    freshness = list(payload.get("freshness", []))
     data_quality = [
         row
         for row in payload.get("source_sales", [])
@@ -150,6 +151,7 @@ def _build_dashboard_summary(payload: dict[str, object]) -> dict[str, object]:
         "top_branches": top_branches,
         "top_products": top_products,
         "inventory": inventory,
+        "source_status": freshness,
         "data_quality": [
             {
                 "source_code": row.get("source_code"),
@@ -241,7 +243,10 @@ def main() -> None:
                 ),
                 "source_sales": _query(
                     cursor,
-                    """SELECT source_code, SUM(sales_qty) AS net_qty,
+                    """SELECT source_code, MIN(sales_date) AS first_date,
+                    MAX(sales_date) AS last_date,
+                    COUNT(DISTINCT sales_date) AS available_days,
+                    SUM(sales_qty) AS net_qty,
                     SUM(sales_amount_ex_vat_after_discount) AS net_amount
                     FROM fact_sales GROUP BY source_code ORDER BY net_amount DESC""",
                 ),

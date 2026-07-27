@@ -73,6 +73,17 @@ type DashboardData = {
     onhand_qty: number;
     onhand_value: number;
   }>;
+  source_status?: Array<{
+    source_code: string;
+    source_name: string;
+    enabled: boolean;
+    latest_sales_date: string | null;
+    sales_days_behind: number | null;
+    sales_status: string;
+    latest_inventory_date: string | null;
+    inventory_days_behind: number | null;
+    inventory_status: string;
+  }>;
   data_quality: Array<{ source_code: string; issue: string; affected_rows: number }>;
   reference_coverage: Array<{ report: string; status: string; note: string }>;
   approval_queue_total?: number;
@@ -205,6 +216,8 @@ export default function EsipApp() {
   const [queueTotal, setQueueTotal] = useState(0);
   const [users, setUsers] = useState<UserRow[]>([]);
   const [permissions, setPermissions] = useState<PermissionMatrix>(defaultPermissions);
+  const [draftPermissions, setDraftPermissions] = useState<PermissionMatrix>(defaultPermissions);
+  const [permissionsDirty, setPermissionsDirty] = useState(false);
   const [newUserEmail, setNewUserEmail] = useState("");
   const [newUserRole, setNewUserRole] = useState<Role>("USER");
   const [imports, setImports] = useState<ImportCenterData | null>(null);
@@ -214,6 +227,7 @@ export default function EsipApp() {
   const [priceLift, setPriceLift] = useState(0.5);
   const [cogsLift, setCogsLift] = useState(2);
   const [volumeLift, setVolumeLift] = useState(0);
+  const [expandedModule, setExpandedModule] = useState<string | null>(null);
 
   const bridgeHeaders = {
     "content-type": "application/json",
@@ -309,7 +323,11 @@ export default function EsipApp() {
     fetch("/api/permissions", { headers: { "x-esip-local-role": localRole } })
       .then(async (response) => {
         const payload = (await response.json()) as { permissions?: PermissionMatrix };
-        if (response.ok && payload.permissions) setPermissions(payload.permissions);
+        if (response.ok && payload.permissions) {
+          setPermissions(payload.permissions);
+          setDraftPermissions(payload.permissions);
+          setPermissionsDirty(false);
+        }
       })
       .catch(() => undefined);
   }, [auth, localRole]);
@@ -493,13 +511,18 @@ export default function EsipApp() {
       setMessage("กรุณากรอกอีเมลให้ถูกต้อง");
       return;
     }
+    await saveUserRole(email, newUserRole);
+    setNewUserEmail("");
+  }
+
+  async function saveUserRole(email: string, role: Role) {
     const response = await fetch("/api/users", {
       method: "POST",
       headers: {
         "content-type": "application/json",
         "x-esip-local-role": localRole,
       },
-      body: JSON.stringify({ email, role: newUserRole }),
+      body: JSON.stringify({ email: email.trim().toLowerCase(), role }),
     });
     const payload = (await response.json()) as { users?: UserRow[]; error?: string };
     if (!response.ok) {
@@ -507,32 +530,72 @@ export default function EsipApp() {
       return;
     }
     setUsers(payload.users ?? []);
-    setNewUserEmail("");
     setMessage("บันทึก Role แล้ว");
   }
 
-  async function savePermission(role: Role, menuId: PageId, canView: boolean) {
-    const next = {
-      ...permissions,
-      [role]: { ...permissions[role], [menuId]: canView },
-    };
-    setPermissions(next);
-    const response = await fetch("/api/permissions", {
-      method: "POST",
+  async function deleteUserRole(email: string) {
+    const response = await fetch("/api/users", {
+      method: "DELETE",
       headers: {
         "content-type": "application/json",
         "x-esip-local-role": localRole,
       },
-      body: JSON.stringify({ role, menuId, canView }),
+      body: JSON.stringify({ email }),
     });
-    const payload = (await response.json()) as { permissions?: PermissionMatrix; error?: string };
+    const payload = (await response.json()) as { users?: UserRow[]; error?: string };
     if (!response.ok) {
-      setPermissions(permissions);
+      setMessage(payload.error ?? "ลบผู้ใช้ไม่สำเร็จ");
+      return;
+    }
+    setUsers(payload.users ?? []);
+    setMessage("ลบผู้ใช้แล้ว");
+  }
+
+  function savePermission(role: Role, menuId: PageId, canView: boolean) {
+    const next = {
+      ...draftPermissions,
+      [role]: { ...draftPermissions[role], [menuId]: canView },
+    };
+    setDraftPermissions(next);
+    setPermissionsDirty(true);
+  }
+
+  async function savePermissionMatrix() {
+    const updates: Array<Promise<Response>> = [];
+    for (const role of ["ADMINISTRATOR", "SALE_ADMIN", "USER"] as const) {
+      for (const [menuId] of nav) {
+        if (permissions[role]?.[menuId] === draftPermissions[role]?.[menuId]) continue;
+        updates.push(fetch("/api/permissions", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-esip-local-role": localRole,
+          },
+          body: JSON.stringify({ role, menuId, canView: draftPermissions[role][menuId] }),
+        }));
+      }
+    }
+    const responses = await Promise.all(updates);
+    const failed = responses.find((response) => !response.ok);
+    if (failed) {
+      const payload = (await failed.json()) as { error?: string };
       setMessage(payload.error ?? "บันทึกสิทธิ์ไม่สำเร็จ");
       return;
     }
-    if (payload.permissions) setPermissions(payload.permissions);
-    setMessage("บันทึกสิทธิ์เมนูแล้ว");
+    const response = await fetch("/api/permissions", { headers: { "x-esip-local-role": localRole } });
+    const payload = (await response.json()) as { permissions?: PermissionMatrix };
+    if (response.ok && payload.permissions) {
+      setPermissions(payload.permissions);
+      setDraftPermissions(payload.permissions);
+      setPermissionsDirty(false);
+    }
+    setMessage(updates.length > 0 ? "บันทึกสิทธิ์เมนูแล้ว" : "ไม่มีรายการเปลี่ยนแปลง");
+  }
+
+  function resetPermissionMatrix() {
+    setDraftPermissions(permissions);
+    setPermissionsDirty(false);
+    setMessage("ยกเลิกการเปลี่ยนแปลงสิทธิ์แล้ว");
   }
 
   const trend = dashboard?.trend ?? [];
@@ -581,6 +644,7 @@ export default function EsipApp() {
     { number: "11", title: "On Order & Supply", status: "SIM", detail: "PO, on order and supply uplift assumption", values: inventoryValues.map((value) => value * (1 + cogsLift / 100)), value: money(inventoryTotal * Math.max(0, cogsLift) / 100), sub: "supply assumption" },
     { number: "12", title: "Data Quality Center", status: "LIVE", detail: "Freshness, missing amount and approval queue", values: [dashboard?.data_quality.length ?? 0, queueTotal, dashboard?.publication_queue_total ?? 0], value: money(queueTotal), sub: "approval queue" },
   ];
+  const expandedModuleCard = moduleCards.find((card) => card.number === expandedModule) ?? null;
 
   return (
     <div className="app-shell">
@@ -693,6 +757,7 @@ export default function EsipApp() {
               imports={imports}
               money={money}
               rows={dashboard?.source_sales ?? []}
+              sourceStatus={dashboard?.source_status ?? []}
             />
             <div className="intelligence-grid">
               <article className="panel mt-mix">
@@ -725,7 +790,7 @@ export default function EsipApp() {
             </div>
             <div className="module-grid">
               {moduleCards.map((card) => (
-                <DashboardModuleCard key={card.number} {...card} />
+                <DashboardModuleCard key={card.number} {...card} onOpen={() => setExpandedModule(card.number)} />
               ))}
             </div>
           </section>
@@ -943,6 +1008,7 @@ export default function EsipApp() {
               imports={imports}
               money={money}
               rows={dashboard?.source_sales ?? []}
+              sourceStatus={dashboard?.source_status ?? []}
             />
           </section>
         )}
@@ -959,26 +1025,61 @@ export default function EsipApp() {
 
         {active === "authorize" && auth?.role === "ADMINISTRATOR" && (
           <section className="page">
-            <div className="section-title"><div><p className="eyebrow teal">ADMINISTRATOR ONLY</p><h2>Authorize Matrix</h2><p className="subtext">ใช้ role จริงที่ backend ตรวจอยู่แล้ว: Administrator, Sale Admin และ User ผู้ดูแลสามารถกำหนด user group ด้วยอีเมล แล้วตรวจ matrix สิทธิ์ราย module ได้ในหน้าเดียว</p></div></div>
+            <div className="section-title">
+              <div>
+                <p className="eyebrow teal">ADMINISTRATOR ONLY</p>
+                <h2>Authorize Matrix</h2>
+                <p className="subtext">กำหนดสิทธิ์การเห็นเมนูและจัดการผู้ใช้จากหน้าเดียว การเปลี่ยนสิทธิ์จะยังไม่ถูกใช้จนกว่าจะกด Save changes</p>
+              </div>
+              <div className="management-actions">
+                <button className="reject" disabled={!permissionsDirty} onClick={resetPermissionMatrix}>Discard</button>
+                <button className="approve" disabled={!permissionsDirty} onClick={() => savePermissionMatrix().catch((error) => setMessage(error instanceof Error ? error.message : "บันทึกสิทธิ์ไม่สำเร็จ"))}>Save changes</button>
+              </div>
+            </div>
             <div className="role-grid">
               <article className="panel role-card"><span>01</span><h3>Administrator</h3><p>บริหารผู้ใช้, role, import, confirm/apply, audit และ system settings</p></article>
               <article className="panel role-card"><span>02</span><h3>Sale Admin</h3><p>ดูข้อมูลขาย, upload/process RAW, confirm mapping และดู audit งานขาย</p></article>
               <article className="panel role-card"><span>03</span><h3>User</h3><p>ดู dashboard และรายงานแบบอ่านอย่างเดียว ไม่มีสิทธิ์ action หลังบ้าน</p></article>
             </div>
             <AuthorizationMatrix
+              dirty={permissionsDirty}
               onChange={savePermission}
-              permissions={permissions}
+              permissions={draftPermissions}
             />
             <article className="panel user-management">
-              <div className="panel-head"><div><p className="eyebrow">USER MANAGEMENT</p><h3>กำหนด Role ด้วยอีเมล</h3></div></div>
+              <div className="panel-head">
+                <div><p className="eyebrow">USER MANAGEMENT</p><h3>จัดการ User และ Role</h3></div>
+                <span className="status-pill">ADMIN EDITABLE</span>
+              </div>
               <div className="user-form">
                 <input type="email" value={newUserEmail} onChange={(event) => setNewUserEmail(event.target.value)} placeholder="name@company.com" />
                 <select value={newUserRole} onChange={(event) => setNewUserRole(event.target.value as Role)}><option value="ADMINISTRATOR">Administrator</option><option value="SALE_ADMIN">Sale Admin</option><option value="USER">User</option></select>
-                <button className="approve" onClick={saveUser}>บันทึก Role</button>
+                <button className="approve" onClick={saveUser}>Add user</button>
               </div>
-              <div className="user-list">{users.map((user) => <div key={user.email}><span><strong>{user.email}</strong><small>{user.created_at}</small></span><b>{roleLabels[user.role]}</b></div>)}</div>
+              <div className="user-list management-list">
+                {users.length === 0 && <div className="empty">ยังไม่มีผู้ใช้ที่กำหนด Role</div>}
+                {users.map((user) => (
+                  <div key={user.email}>
+                    <span><strong>{user.email}</strong><small>สร้างเมื่อ {user.created_at}</small></span>
+                    <select value={user.role} onChange={(event) => saveUserRole(user.email, event.target.value as Role)}>
+                      <option value="ADMINISTRATOR">Administrator</option>
+                      <option value="SALE_ADMIN">Sale Admin</option>
+                      <option value="USER">User</option>
+                    </select>
+                    <button className="reject" onClick={() => deleteUserRole(user.email)}>Delete</button>
+                  </div>
+                ))}
+              </div>
             </article>
           </section>
+        )}
+
+        {expandedModuleCard && (
+          <ModuleDetailModal
+            card={expandedModuleCard}
+            money={money}
+            onClose={() => setExpandedModule(null)}
+          />
         )}
       </main>
 
@@ -1131,6 +1232,7 @@ function ScenarioDashboardCard({
 function DashboardModuleCard({
   detail,
   number,
+  onOpen,
   status,
   sub,
   title,
@@ -1139,6 +1241,7 @@ function DashboardModuleCard({
 }: {
   detail: string;
   number: string;
+  onOpen: () => void;
   status: string;
   sub: string;
   title: string;
@@ -1162,7 +1265,58 @@ function DashboardModuleCard({
       <strong>{value}</strong>
       <small>{sub}</small>
       <p>{detail}</p>
+      <button className="module-open" onClick={onOpen}>เปิดดูรายละเอียด</button>
     </article>
+  );
+}
+
+function ModuleDetailModal({
+  card,
+  money,
+  onClose,
+}: {
+  card: {
+    detail: string;
+    number: string;
+    status: string;
+    sub: string;
+    title: string;
+    value: string;
+    values: number[];
+  };
+  money: (value: number) => string;
+  onClose: () => void;
+}) {
+  const max = Math.max(...card.values.map((value) => Math.abs(value)), 1);
+  return (
+    <div className="module-modal-backdrop" role="dialog" aria-modal="true" aria-label={card.title}>
+      <article className="module-modal">
+        <div className="panel-head">
+          <div>
+            <p className="eyebrow">{card.status} MODULE {card.number}</p>
+            <h3>{card.title}</h3>
+          </div>
+          <button className="reject" onClick={onClose}>Close</button>
+        </div>
+        <div className="module-modal-body">
+          <div className="module-big-chart">
+            {card.values.slice(-30).map((value, index) => (
+              <i
+                key={`${card.number}-modal-${index}`}
+                title={money(value)}
+                style={{ height: `${Math.max((Math.abs(value) / max) * 100, 4)}%` }}
+              />
+            ))}
+          </div>
+          <div className="module-modal-summary">
+            <span>Current value</span>
+            <strong>{card.value}</strong>
+            <small>{card.sub}</small>
+            <p>{card.detail}</p>
+          </div>
+        </div>
+      </article>
+    </div>
   );
 }
 
@@ -1171,11 +1325,13 @@ function SourceStatusBoard({
   imports,
   money,
   rows,
+  sourceStatus,
 }: {
   detailed?: boolean;
   imports: ImportCenterData | null;
   money: (value: number) => string;
   rows: DashboardData["source_sales"];
+  sourceStatus: NonNullable<DashboardData["source_status"]>;
 }) {
   const pendingBySource = new Map<string, number>();
   for (const file of imports?.pending_files ?? []) {
@@ -1191,19 +1347,28 @@ function SourceStatusBoard({
       </div>
       <div className="raw-status-table">
         <div className="raw-status-head">
-          <span>MT</span><span>วันที่ล่าสุด</span><span>Lag</span><span>วันในระบบ</span><span>Pending</span>{detailed && <><span>Local path</span><span>NAS path</span></>}
+          <span>MT</span><span>Sales ล่าสุด</span><span>Inventory ล่าสุด</span><span>Lag</span><span>วันในระบบ</span><span>Pending</span>{detailed && <><span>Local path</span><span>NAS path</span></>}
         </div>
         {rawSourcePaths.map((source) => {
           const row = rows.find((item) => item.source_code === source.code);
-          const latest = row?.last_date ?? null;
-          const lagDays = latest ? Math.max(0, Math.round((today.getTime() - new Date(`${latest}T00:00:00`).getTime()) / 86400000)) : null;
+          const sourceRow = sourceStatus.find((item) => item.source_code === source.code);
+          const latestSales = sourceRow?.latest_sales_date ?? row?.last_date ?? null;
+          const latestInventory = sourceRow?.latest_inventory_date ?? null;
+          const latest = latestSales ?? latestInventory;
+          const lagDays = typeof sourceRow?.sales_days_behind === "number"
+            ? Math.max(0, sourceRow.sales_days_behind)
+            : latest
+              ? Math.max(0, Math.round((today.getTime() - new Date(`${latest}T00:00:00`).getTime()) / 86400000))
+              : null;
+          const availableDays = Number(row?.available_days ?? 0);
           const status = !latest ? "waiting" : lagDays !== null && lagDays <= 2 ? "ready" : "lagging";
           return (
             <div className={`raw-status-row ${status}`} key={source.code}>
               <span><b className="source-logo mini">{source.code}</b><strong>{source.name}</strong></span>
-              <span>{latest ?? "รอข้อมูล"}</span>
+              <span>{latestSales ?? "รอข้อมูล"}</span>
+              <span>{latestInventory ?? "รอข้อมูล"}</span>
               <span className={`source-status ${status}`}>{lagDays === null ? "WAITING" : `${lagDays} DAYS`}</span>
-              <span>{row ? `${row.available_days} วัน` : "0 วัน"}</span>
+              <span>{availableDays > 0 ? `${availableDays} ???` : "0 ???"}</span>
               <span>{money(pendingBySource.get(source.code) ?? 0)} ไฟล์</span>
               {detailed && <><code>{source.local}</code><code>{source.nas}</code></>}
             </div>
@@ -1215,15 +1380,17 @@ function SourceStatusBoard({
 }
 
 function AuthorizationMatrix({
+  dirty,
   onChange,
   permissions,
 }: {
+  dirty: boolean;
   onChange: (role: Role, menuId: PageId, canView: boolean) => void;
   permissions: PermissionMatrix;
 }) {
   return (
     <article className="panel authorization-matrix">
-      <div className="panel-head"><div><p className="eyebrow">ACCESS BY USER GROUP</p><h3>สิทธิ์การเห็นเมนูราย Role</h3></div><span className="status-pill">ADMIN EDITABLE</span></div>
+      <div className="panel-head"><div><p className="eyebrow">ACCESS BY USER GROUP</p><h3>สิทธิ์การเห็นเมนูราย Role</h3></div><span className="status-pill">{dirty ? "UNSAVED CHANGES" : "SAVED"}</span></div>
       <div className="auth-table">
         <div className="auth-head"><span>Module</span><span>Administrator</span><span>Sale Admin</span><span>User</span></div>
         {nav.map(([menuId, label]) => (
