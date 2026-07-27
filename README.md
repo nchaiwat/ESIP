@@ -1,5 +1,22 @@
 # Enterprise Sales Intelligence Platform (ESIP)
 
+## สถานะใช้งานปัจจุบัน
+
+- PWA Dashboard ใช้งานที่ `http://localhost:3000`
+- Apply Bridge/API ใช้งานที่ `http://localhost:8090`
+- หน้าแหล่งข้อมูลแสดงสถานะ RAW แยก MT พร้อมวันที่ Sales ล่าสุด, Inventory ล่าสุด, lag, จำนวนวันในระบบ, pending files, local path และ NAS path
+- Authorize Matrix เป็นแบบ Admin managed มีปุ่ม `Save changes` และ `Discard` สำหรับบันทึกหรือยกเลิกสิทธิ์ราย Role
+- User Management เพิ่มผู้ใช้, เปลี่ยน Role และลบผู้ใช้ได้ โดยระบบกันไม่ให้ลบ Administrator คนสุดท้าย
+- Dashboard module card เปิดดูรายละเอียดขนาดใหญ่ได้ และ module ที่ยังไม่มี input จริงจะแสดงเป็น simulation/model อย่างชัดเจน
+- ข้อมูลที่ยังไม่มี input จริง เช่น target, cost/COGS, PO/on-order, aging และ forecast ยังต้องเชื่อม source จริงเพิ่มเติม
+
+## สิ่งที่ยังต้องทำต่อ
+
+- เชื่อม input จริงสำหรับ Target, Cost/COGS, PO/On Order, Aging และ Forecast
+- ยกระดับหน้า Dashboard จาก summary chart ไปสู่ drill-down/filter/export ราย module
+- เคลียร์ Mapping/Publication governance queue เพื่อให้ข้อมูลพร้อม publish
+- ปรับ README และเอกสารส่วนล่างที่เป็น sprint note เก่าให้ตรงกับสถานะ product ล่าสุดทั้งหมด
+
 Workspace กลางสำหรับนำเข้าข้อมูลยอดขายและสินค้าคงคลังรายวันจาก Modern Trade ให้เป็นข้อมูลมาตรฐานสำหรับ Dashboard, KPI และ AI Analytics
 
 ## Current status
