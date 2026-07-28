@@ -1435,15 +1435,18 @@ function LoginScreen() {
       .catch(() => setError("ไม่สามารถตรวจสอบระบบ Login ได้"));
   }, []);
 
-  async function submitLogin(event: React.FormEvent) {
-    event.preventDefault();
+  async function performLogin(loginSecret = secret) {
+    if (!identifier.trim() || !loginSecret) {
+      setError("กรุณาระบุ User ID และข้อมูลเข้าสู่ระบบ");
+      return;
+    }
     setWorking(true);
     setError("");
     try {
       const response = await fetch("/api/auth", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "LOGIN", identifier: identifier.trim(), secret, method }),
+        body: JSON.stringify({ action: "LOGIN", identifier: identifier.trim(), secret: loginSecret, method }),
       });
       const payload = (await response.json()) as { error?: string };
       if (!response.ok) throw new Error(payload.error ?? "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง");
@@ -1453,6 +1456,18 @@ function LoginScreen() {
     } finally {
       setWorking(false);
     }
+  }
+
+  async function submitLogin(event: React.FormEvent) {
+    event.preventDefault();
+    await performLogin();
+  }
+
+  function pressPin(digit: string) {
+    if (working || secret.length >= 6) return;
+    const next = `${secret}${digit}`;
+    setSecret(next);
+    if (next.length === 6) void performLogin(next);
   }
 
   async function submitSetup(event: React.FormEvent) {
@@ -1514,11 +1529,29 @@ function LoginScreen() {
               </button>
               <button className={method === "PIN" ? "active" : ""} onClick={() => { setMethod("PIN"); setSecret(""); }}>PIN</button>
             </div>
-            <form onSubmit={submitLogin} className="login-form">
-              <label><span>Username หรือ Email</span><input required value={identifier} onChange={(event) => setIdentifier(event.target.value)} placeholder={method === "ACTIVE_DIRECTORY" ? "ระบุ Username โดยไม่ต้องใส่ @company.com" : "username หรือ name@company.com"} autoComplete="username" /></label>
-              <label><span>{method === "PIN" ? "PIN 6 หลัก" : "Password"}</span><SecretInput required numeric={method === "PIN"} maxLength={method === "PIN" ? 6 : undefined} value={secret} onChange={setSecret} placeholder={method === "PIN" ? "PIN 6 หลัก" : "Password"} autoComplete="current-password" /></label>
-              <button className="login-submit" disabled={working}>{working ? "กำลังตรวจสอบ…" : method === "PIN" ? "เข้าสู่ระบบด้วย PIN" : "เข้าสู่ระบบ"}</button>
-            </form>
+            {method === "PIN" ? (
+              <section className="pin-login" aria-label="เข้าสู่ระบบด้วย PIN">
+                <label className="pin-user-field"><span>User ID</span><input required value={identifier} onChange={(event) => { setIdentifier(event.target.value); setSecret(""); }} placeholder="เช่น Chaiwat.N" autoComplete="username" /></label>
+                <p>เข้าสู่ระบบในฐานะ</p>
+                <strong className="pin-user">{identifier.trim() || "ระบุ User ID ด้านบน"}</strong>
+                <div className="pin-dots" aria-label={`กรอก PIN แล้ว ${secret.length} จาก 6 หลัก`}>
+                  {Array.from({ length: 6 }, (_, index) => <i className={index < secret.length ? "filled" : ""} key={index} />)}
+                </div>
+                <div className="pin-keypad">
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((digit) => <button type="button" key={digit} onClick={() => pressPin(String(digit))} disabled={working}>{digit}</button>)}
+                  <button type="button" className="pin-password" onClick={() => { setMethod("LOCAL"); setSecret(""); }}>ใช้รหัสผ่าน</button>
+                  <button type="button" onClick={() => pressPin("0")} disabled={working}>0</button>
+                  <button type="button" aria-label="ลบเลข PIN หลักล่าสุด" onClick={() => setSecret((current) => current.slice(0, -1))} disabled={working}>⌫</button>
+                </div>
+                {working && <small className="pin-progress">กำลังตรวจสอบ…</small>}
+              </section>
+            ) : (
+              <form onSubmit={submitLogin} className="login-form">
+                <label><span>Username หรือ Email</span><input required value={identifier} onChange={(event) => setIdentifier(event.target.value)} placeholder={method === "ACTIVE_DIRECTORY" ? "ระบุ Username โดยไม่ต้องใส่ @company.com" : "username หรือ name@company.com"} autoComplete="username" /></label>
+                <label><span>Password</span><SecretInput required value={secret} onChange={setSecret} placeholder="Password" autoComplete="current-password" /></label>
+                <button className="login-submit" disabled={working}>{working ? "กำลังตรวจสอบ…" : "เข้าสู่ระบบ"}</button>
+              </form>
+            )}
             <p className="login-security-note">
               Session หมดอายุใน 8 ชั่วโมง · ระบบไม่จัดเก็บรหัสผ่าน Active Directory
               {!adConfigured && <><br />Windows AD จะเปิดใช้งานหลังตั้งค่า AD Gateway</>}

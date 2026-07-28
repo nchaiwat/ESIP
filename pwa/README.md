@@ -24,6 +24,11 @@ The Docker volumes keep PWA role, confirmation, and audit state between restarts
 Passwords and PINs are stored as salted PBKDF2-SHA256 hashes. Sessions use an
 opaque server-side token in an HttpOnly, SameSite=Strict cookie and expire after
 8 hours. Failed login attempts are audited and trigger temporary lockout.
+Rate limiting is enforced server-side per account and per IP in a 15-minute
+window. PIN login allows 5 attempts per account and 20 per IP; password/AD
+login allows 10 per account and 30 per IP. The existing account lock applies
+after 5 invalid credentials and requires an Administrator to restore a suspended
+account after repeated failures.
 
 Windows AD login requires `ESIP_AD_GATEWAY_URL` and `ESIP_AD_GATEWAY_KEY`.
 The ESIP server forwards the credential to that gateway for verification and

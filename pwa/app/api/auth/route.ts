@@ -86,6 +86,12 @@ export async function POST(request: Request) {
     userAgent: request.headers.get("user-agent") ?? "unknown",
   });
   if (!result.ok) {
+    if (result.rateLimited) {
+      return Response.json(
+        { error: "มีการลองเข้าสู่ระบบหลายครั้งเกินไป กรุณารอสักครู่แล้วลองใหม่", retryAfter: result.retryAfter },
+        { status: 429, headers: { "retry-after": String(result.retryAfter) } },
+      );
+    }
     return Response.json({ error: "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง" }, { status: 401 });
   }
   return Response.json(

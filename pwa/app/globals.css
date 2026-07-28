@@ -70,6 +70,21 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .secret-input button { position: absolute; top: 50%; right: 7px; min-width: 52px; min-height: 34px; transform: translateY(-50%); color: var(--teal); background: transparent; border: 0; font-size: 11px; font-weight: 800; }
 .login-submit { min-height: 50px; margin-top: 5px; color: #06241f; background: var(--teal); border: 0; border-radius: 4px; font-weight: 800; }
 .login-security-note { margin-top: 20px; color: var(--muted); font-size: 11px; text-align: center; }
+.pin-login { display: grid; justify-items: center; }
+.pin-user-field { width: 100%; display: grid; gap: 8px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.pin-user-field input { width: 100%; min-height: 48px; padding: 12px 14px; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 4px; outline: 0; }
+.pin-user-field input:focus { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(107,216,203,.1); }
+.pin-login > p { margin: 22px 0 8px; color: var(--muted); font-size: 12px; }
+.pin-user { padding: 8px 15px; color: var(--text); background: var(--surface-high); border: 1px solid var(--line); border-radius: 999px; font-size: 13px; }
+.pin-dots { display: flex; gap: 16px; margin: 28px 0; }
+.pin-dots i { width: 14px; height: 14px; border: 2px solid var(--line); border-radius: 50%; background: transparent; transition: .15s ease; }
+.pin-dots i.filled { border-color: var(--teal); background: var(--teal); box-shadow: 0 0 0 4px rgba(107,216,203,.1); }
+.pin-keypad { width: min(330px, 100%); display: grid; grid-template-columns: repeat(3, 1fr); justify-items: center; gap: 14px 18px; }
+.pin-keypad button { width: 70px; height: 70px; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 50%; font-size: 22px; font-weight: 800; transition: transform .12s ease, border-color .12s ease, background .12s ease; }
+.pin-keypad button:hover { transform: translateY(-2px); border-color: var(--teal); background: var(--surface-high); }
+.pin-keypad button:active { transform: translateY(0); }
+.pin-keypad .pin-password { width: 90px; color: var(--teal); background: transparent; border-color: transparent; border-radius: 4px; font-size: 11px; }
+.pin-progress { margin-top: 16px; color: var(--teal); }
 
 .app-shell { min-height: 100vh; }
 .sidebar {
@@ -672,7 +687,8 @@ html[data-theme="light"] .primary { color: #ffffff; }
   .login-brand { display: none; }
   .login-surface { width: calc(100% - 30px); padding: 36px 0; }
   .login-form-head h2 { font-size: 26px; }
-  .login-methods { grid-template-columns: 1fr; }
+  .login-methods { grid-template-columns: repeat(3, 1fr); }
+  .login-methods button { padding: 7px 3px; font-size: 11px; }
   .sidebar { display: none; }
   main { margin-left: 0; padding-bottom: 74px; }
   .topbar { height: 72px; padding: 0 17px; }

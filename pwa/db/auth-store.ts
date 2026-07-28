@@ -3,6 +3,7 @@ import { ensureConfirmationStore, type UserRole } from "./confirmation-store";
 
 const ITERATIONS = 210_000;
 const SESSION_SECONDS = 8 * 60 * 60;
+const RATE_WINDOW_SECONDS = 15 * 60;
 
 type LoginMethod = "LOCAL" | "PIN" | "ACTIVE_DIRECTORY";
 
@@ -38,6 +39,12 @@ export async function ensureAuthStore() {
       user_agent TEXT NOT NULL,
       reason TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`),
+    d1.prepare(`CREATE TABLE IF NOT EXISTS auth_rate_limits (
+      rate_key TEXT PRIMARY KEY,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      window_started_at TEXT NOT NULL,
+      blocked_until TEXT
     )`),
   ]);
 }
@@ -86,6 +93,14 @@ export async function authenticateUser(input: {
 }) {
   await ensureAuthStore();
   const identifier = input.identifier.trim().toLowerCase();
+  const rateKeys = loginRateKeys(identifier, input.ipAddress, input.method);
+  const blockedUntil = await currentRateLimit(rateKeys);
+  if (blockedUntil) {
+    await db().batch([
+      loginEvent(identifier, "LOGIN_RATE_LIMITED", input.method, input.ipAddress, input.userAgent, "RATE_LIMIT"),
+    ]);
+    return { ok: false as const, rateLimited: true as const, retryAfter: Math.max(1, Math.ceil((blockedUntil - Date.now()) / 1000)) };
+  }
   const user = await db()
     .prepare(`SELECT email, username, display_name, role, status, auth_source,
       failed_attempts, locked_until, credential_hash, pin_hash
@@ -129,6 +144,7 @@ export async function authenticateUser(input: {
     db().prepare("INSERT INTO auth_sessions (token_hash, email, expires_at) VALUES (?, ?, ?)")
       .bind(tokenHash, user.email, expiresAt),
     loginEvent(identifier, "LOGIN_SUCCESS", input.method, input.ipAddress, input.userAgent, "SUCCESS"),
+    ...rateKeys.map((key) => db().prepare("DELETE FROM auth_rate_limits WHERE rate_key = ?").bind(key.key)),
   ]);
   return {
     ok: true as const,
@@ -146,7 +162,11 @@ async function loginFailure(
   email?: string,
   previousAttempts = 0,
 ) {
-  const statements = [loginEvent(identifier, "LOGIN_FAILED", input.method, input.ipAddress, input.userAgent, reason)];
+  const rateStatements = await registerRateFailure(loginRateKeys(identifier, input.ipAddress, input.method));
+  const statements = [
+    loginEvent(identifier, "LOGIN_FAILED", input.method, input.ipAddress, input.userAgent, reason),
+    ...rateStatements,
+  ];
   if (increment && email) {
     const attempts = previousAttempts + 1;
     const lockedUntil = attempts >= 5 ? new Date(Date.now() + 5 * 60 * 1000).toISOString() : null;
@@ -158,7 +178,56 @@ async function loginFailure(
     );
   }
   await db().batch(statements);
-  return { ok: false as const };
+  return { ok: false as const, rateLimited: false as const };
+}
+
+function loginRateKeys(identifier: string, ipAddress: string, method: LoginMethod) {
+  const ip = ipAddress.split(",")[0]?.trim().slice(0, 120) || "unknown";
+  const accountLimit = method === "PIN" ? 5 : 10;
+  const ipLimit = method === "PIN" ? 20 : 30;
+  return [
+    { key: `ACCOUNT:${method}:${identifier}`, limit: accountLimit },
+    { key: `IP:${method}:${ip}`, limit: ipLimit },
+  ];
+}
+
+async function currentRateLimit(keys: Array<{ key: string; limit: number }>) {
+  const now = Date.now();
+  let latest = 0;
+  for (const item of keys) {
+    const row = await db()
+      .prepare("SELECT blocked_until FROM auth_rate_limits WHERE rate_key = ?")
+      .bind(item.key)
+      .first<{ blocked_until: string | null }>();
+    const blockedUntil = row?.blocked_until ? new Date(row.blocked_until).getTime() : 0;
+    if (blockedUntil > now) latest = Math.max(latest, blockedUntil);
+  }
+  return latest || null;
+}
+
+async function registerRateFailure(keys: Array<{ key: string; limit: number }>) {
+  const now = Date.now();
+  const windowStarted = new Date(now).toISOString();
+  const statements: D1PreparedStatement[] = [];
+  for (const item of keys) {
+    const row = await db()
+      .prepare("SELECT attempts, window_started_at FROM auth_rate_limits WHERE rate_key = ?")
+      .bind(item.key)
+      .first<{ attempts: number; window_started_at: string }>();
+    const windowExpired = !row || new Date(row.window_started_at).getTime() + RATE_WINDOW_SECONDS * 1000 <= now;
+    const attempts = windowExpired ? 1 : row.attempts + 1;
+    const blockedUntil = attempts >= item.limit
+      ? new Date(now + RATE_WINDOW_SECONDS * 1000).toISOString()
+      : null;
+    statements.push(
+      db().prepare(`INSERT INTO auth_rate_limits (rate_key, attempts, window_started_at, blocked_until)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(rate_key) DO UPDATE SET attempts = excluded.attempts,
+          window_started_at = excluded.window_started_at, blocked_until = excluded.blocked_until`)
+        .bind(item.key, attempts, windowExpired ? windowStarted : row.window_started_at, blockedUntil),
+    );
+  }
+  return statements;
 }
 
 export async function getSessionUser(token: string) {
