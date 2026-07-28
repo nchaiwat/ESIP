@@ -93,17 +93,27 @@ type DashboardData = {
 
 type UserRow = {
   email: string;
+  username: string;
   role: Role;
   display_name: string;
   department: string;
   job_title: string;
   auth_source: "LOCAL" | "ACTIVE_DIRECTORY";
   status: "ACTIVE" | "SUSPENDED";
+  failed_attempts: number;
+  locked_until: string | null;
   last_login_at: string | null;
   created_at: string;
   updated_at: string;
 };
-type UserDraft = Pick<UserRow, "email" | "role" | "display_name" | "department" | "job_title" | "auth_source" | "status">;
+type UserDraft = Pick<UserRow, "email" | "username" | "role" | "display_name" | "department" | "job_title" | "auth_source" | "status">;
+type UserAdminEvent = {
+  id: number;
+  action: string;
+  actor_email: string;
+  detail: string;
+  created_at: string;
+};
 type SimulationAxis = {
   key: string;
   label: string;
@@ -252,6 +262,7 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutM
 
 const emptyUserDraft: UserDraft = {
   email: "",
+  username: "",
   role: "USER",
   display_name: "",
   department: "",
@@ -283,6 +294,7 @@ export default function EsipApp() {
   const [queueSearch, setQueueSearch] = useState("");
   const [queueTotal, setQueueTotal] = useState(0);
   const [users, setUsers] = useState<UserRow[]>([]);
+  const [userEvents, setUserEvents] = useState<UserAdminEvent[]>([]);
   const [permissions, setPermissions] = useState<PermissionMatrix>(defaultPermissions);
   const [draftPermissions, setDraftPermissions] = useState<PermissionMatrix>(defaultPermissions);
   const [permissionsDirty, setPermissionsDirty] = useState(false);
@@ -382,8 +394,11 @@ export default function EsipApp() {
     if (auth?.role !== "ADMINISTRATOR") return;
     fetch("/api/users", { headers: { "x-esip-local-role": localRole } })
       .then(async (response) => {
-        const payload = (await response.json()) as { users?: UserRow[] };
-        if (response.ok) setUsers(payload.users ?? []);
+        const payload = (await response.json()) as { users?: UserRow[]; events?: UserAdminEvent[] };
+        if (response.ok) {
+          setUsers(payload.users ?? []);
+          setUserEvents(payload.events ?? []);
+        }
       })
       .catch(() => undefined);
   }, [auth?.role, localRole]);
@@ -595,31 +610,44 @@ export default function EsipApp() {
       },
       body: JSON.stringify(draft),
     });
-    const payload = (await response.json()) as { users?: UserRow[]; error?: string };
+    const payload = (await response.json()) as { users?: UserRow[]; events?: UserAdminEvent[]; error?: string };
     if (!response.ok) {
       setMessage(payload.error ?? "บันทึก Role ไม่สำเร็จ");
       return;
     }
     setUsers(payload.users ?? []);
+    setUserEvents(payload.events ?? []);
     setMessage("บันทึกข้อมูลผู้ใช้แล้ว");
   }
 
-  async function deleteUserRole(email: string) {
+  async function manageUserAccess(email: string, action: "ACTIVATE" | "SUSPEND" | "UNLOCK") {
+    if (action === "SUSPEND" && !window.confirm(`ยืนยันระงับการใช้งาน ${email}?`)) return;
     const response = await fetch("/api/users", {
-      method: "DELETE",
+      method: "PATCH",
       headers: {
         "content-type": "application/json",
         "x-esip-local-role": localRole,
       },
-      body: JSON.stringify({ email }),
+      body: JSON.stringify({ email, action }),
     });
-    const payload = (await response.json()) as { users?: UserRow[]; error?: string };
+    const payload = (await response.json()) as {
+      users?: UserRow[];
+      events?: UserAdminEvent[];
+      error?: string;
+    };
     if (!response.ok) {
-      setMessage(payload.error ?? "ลบผู้ใช้ไม่สำเร็จ");
+      setMessage(payload.error ?? "จัดการสถานะผู้ใช้ไม่สำเร็จ");
       return;
     }
     setUsers(payload.users ?? []);
-    setMessage("ลบผู้ใช้แล้ว");
+    setUserEvents(payload.events ?? []);
+    setMessage(
+      action === "UNLOCK"
+        ? "ปลดล็อกบัญชีและล้างจำนวนครั้งที่เข้าสู่ระบบผิดแล้ว"
+        : action === "SUSPEND"
+          ? "ระงับบัญชีผู้ใช้แล้ว"
+          : "เปิดใช้งานบัญชีผู้ใช้แล้ว",
+    );
   }
 
   function savePermission(role: Role, menuId: PageId, canView: boolean) {
@@ -724,7 +752,7 @@ export default function EsipApp() {
   ];
   const expandedModuleCard = moduleCards.find((card) => card.number === expandedModule) ?? null;
   const filteredUsers = users.filter((user) => {
-    const haystack = `${user.display_name} ${user.email} ${user.department} ${user.job_title} ${user.role}`.toLowerCase();
+    const haystack = `${user.display_name} ${user.username} ${user.email} ${user.department} ${user.job_title} ${user.role}`.toLowerCase();
     return haystack.includes(userSearch.trim().toLowerCase())
       && (userStatusFilter === "ALL" || user.status === userStatusFilter);
   });
@@ -1150,27 +1178,32 @@ export default function EsipApp() {
                 <span><strong>{users.length}</strong> ผู้ใช้ทั้งหมด</span>
                 <span><strong>{users.filter((user) => user.status === "ACTIVE").length}</strong> ใช้งานอยู่</span>
                 <span><strong>{users.filter((user) => user.auth_source === "ACTIVE_DIRECTORY").length}</strong> เชื่อม Windows AD</span>
+                <span><strong>{users.filter((user) => user.failed_attempts > 0 || Boolean(user.locked_until)).length}</strong> ต้องตรวจสอบความปลอดภัย</span>
               </div>
               <div className="user-table-wrap">
                 <table className="user-table">
-                  <thead><tr><th>ผู้ใช้</th><th>Role / แผนก</th><th>เข้าสู่ระบบ</th><th>สถานะ</th><th>เข้าใช้ล่าสุด</th><th>จัดการ</th></tr></thead>
+                  <thead><tr><th>ผู้ใช้</th><th>Role / แผนก</th><th>เข้าสู่ระบบ</th><th>ความปลอดภัย</th><th>เข้าใช้ล่าสุด</th><th>จัดการ</th></tr></thead>
                   <tbody>
                     {filteredUsers.map((user) => (
                       <tr key={user.email}>
                         <td>
                           <span className="user-identity">
                             <b className="avatar">{(user.display_name || user.email).slice(0, 2).toUpperCase()}</b>
-                            <span><strong>{user.display_name || "ยังไม่ได้ระบุชื่อ"}</strong><small>{user.email}</small></span>
+                            <span><strong>{user.display_name || "ยังไม่ได้ระบุชื่อ"}</strong><small>@{user.username || user.email.split("@")[0]} · {user.email}</small></span>
                           </span>
                         </td>
                         <td><strong>{roleLabels[user.role]}</strong><small>{[user.department, user.job_title].filter(Boolean).join(" · ") || "ยังไม่ได้ระบุ"}</small></td>
                         <td><span className="auth-source">{user.auth_source === "ACTIVE_DIRECTORY" ? "Windows AD" : "Local"}</span></td>
-                        <td><span className={`user-status ${user.status.toLowerCase()}`}>{user.status === "ACTIVE" ? "ใช้งานอยู่" : "ระงับใช้งาน"}</span></td>
+                        <td>
+                          <span className={`user-status ${user.status.toLowerCase()}`}>{user.status === "ACTIVE" ? "ใช้งานอยู่" : "ระงับใช้งาน"}</span>
+                          <small>{user.locked_until ? `ล็อกถึง ${user.locked_until}` : user.failed_attempts > 0 ? `เข้าสู่ระบบผิด ${user.failed_attempts} ครั้ง` : "ไม่พบความเสี่ยง"}</small>
+                        </td>
                         <td><span>{user.last_login_at || "ยังไม่มีข้อมูล"}</span><small>สร้าง {user.created_at}</small></td>
                         <td>
                           <div className="row-actions">
                             <button className="module-open" onClick={() => setEditingUser({
                               email: user.email,
+                              username: user.username,
                               role: user.role,
                               display_name: user.display_name,
                               department: user.department,
@@ -1178,7 +1211,13 @@ export default function EsipApp() {
                               auth_source: user.auth_source,
                               status: user.status,
                             })}>แก้ไข</button>
-                            <button className="reject" onClick={() => deleteUserRole(user.email)}>ลบ</button>
+                            {(user.failed_attempts > 0 || user.locked_until) && <button className="module-open" onClick={() => manageUserAccess(user.email, "UNLOCK")}>ปลดล็อก</button>}
+                            <button
+                              className={user.status === "ACTIVE" ? "reject" : "module-open"}
+                              onClick={() => manageUserAccess(user.email, user.status === "ACTIVE" ? "SUSPEND" : "ACTIVATE")}
+                            >
+                              {user.status === "ACTIVE" ? "ระงับ" : "เปิดใช้"}
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -1186,6 +1225,16 @@ export default function EsipApp() {
                   </tbody>
                 </table>
                 {filteredUsers.length === 0 && <div className="empty">ไม่พบผู้ใช้ตามเงื่อนไขที่เลือก</div>}
+              </div>
+              <div className="user-activity">
+                <div className="panel-head"><div><p className="eyebrow">SECURITY AUDIT</p><h4>กิจกรรมจัดการผู้ใช้ล่าสุด</h4></div><span className="status-pill">INSERT ONLY</span></div>
+                {userEvents.length === 0 && <div className="empty">ยังไม่มีกิจกรรมจัดการผู้ใช้</div>}
+                {userEvents.slice(0, 10).map((event) => (
+                  <article key={event.id}>
+                    <span className="audit-icon approved" />
+                    <div><strong>{event.action.replace("USER_", "")}</strong><p>{event.detail}</p><small>{event.actor_email} · {event.created_at}</small></div>
+                  </article>
+                ))}
               </div>
             </article>
           </section>
@@ -1622,6 +1671,7 @@ function UserEditor({
         </div>
         <div className="user-editor-grid">
           <label><span>ชื่อที่แสดง</span><input value={draft.display_name} onChange={(event) => update("display_name", event.target.value)} placeholder="ชื่อ นามสกุล" /></label>
+          <label><span>Username</span><input value={draft.username} onChange={(event) => update("username", event.target.value.toLowerCase())} placeholder="เช่น chaiwat.n" /><small>ใช้ a-z, 0-9, จุด, ขีดกลาง หรือขีดล่าง</small></label>
           <label><span>อีเมล</span><input type="email" disabled={!isNew} value={draft.email} onChange={(event) => update("email", event.target.value)} placeholder="name@company.com" /></label>
           <label><span>แผนก</span><input value={draft.department} onChange={(event) => update("department", event.target.value)} placeholder="เช่น Sales, IT, Finance" /></label>
           <label><span>ตำแหน่ง</span><input value={draft.job_title} onChange={(event) => update("job_title", event.target.value)} placeholder="เช่น Manager, Analyst" /></label>
@@ -1629,7 +1679,7 @@ function UserEditor({
           <label><span>วิธีเข้าสู่ระบบ</span><select value={draft.auth_source} onChange={(event) => update("auth_source", event.target.value as UserDraft["auth_source"])}><option value="ACTIVE_DIRECTORY">Windows Active Directory</option><option value="LOCAL">Local account</option></select></label>
           <label><span>สถานะ</span><select value={draft.status} onChange={(event) => update("status", event.target.value as UserDraft["status"])}><option value="ACTIVE">ใช้งานอยู่</option><option value="SUSPENDED">ระงับใช้งาน</option></select></label>
         </div>
-        <div className="editor-note">ระบบจะใช้ Role ร่วมกับ Authorize Matrix ในการกำหนดเมนูที่ผู้ใช้นี้เปิดดูได้</div>
+        <div className="editor-note">ระบบใช้ Role ร่วมกับ Authorize Matrix และจะไม่จัดเก็บรหัสผ่าน Active Directory ไว้ใน ESIP</div>
         <div className="editor-actions"><button className="reject" onClick={onCancel}>ยกเลิก</button><button className="approve" onClick={onSave}>บันทึกข้อมูล</button></div>
       </article>
     </div>

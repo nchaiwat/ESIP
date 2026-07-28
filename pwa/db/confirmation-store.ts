@@ -77,15 +77,26 @@ export type AuditRow = {
 
 export type ManagedUser = {
   email: string;
+  username: string;
   role: UserRole;
   display_name: string;
   department: string;
   job_title: string;
   auth_source: "LOCAL" | "ACTIVE_DIRECTORY";
   status: "ACTIVE" | "SUSPENDED";
+  failed_attempts: number;
+  locked_until: string | null;
   last_login_at: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type UserAdminEvent = {
+  id: number;
+  action: string;
+  actor_email: string;
+  detail: string;
+  created_at: string;
 };
 
 function db(): D1Database {
@@ -98,12 +109,15 @@ export async function ensureConfirmationStore() {
   await d1.batch([
     d1.prepare(`CREATE TABLE IF NOT EXISTS admin_users (
       email TEXT PRIMARY KEY,
+      username TEXT NOT NULL DEFAULT '',
       role TEXT NOT NULL DEFAULT 'ADMINISTRATOR',
       display_name TEXT NOT NULL DEFAULT '',
       department TEXT NOT NULL DEFAULT '',
       job_title TEXT NOT NULL DEFAULT '',
       auth_source TEXT NOT NULL DEFAULT 'ACTIVE_DIRECTORY',
       status TEXT NOT NULL DEFAULT 'ACTIVE',
+      failed_attempts INTEGER NOT NULL DEFAULT 0,
+      locked_until TEXT,
       last_login_at TEXT,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -245,11 +259,14 @@ async function migrateLegacyRolesAndColumns(d1: D1Database) {
     .all<{ name: string }>();
   const userColumnNames = new Set(userColumns.results.map((column) => column.name));
   const userMigrations = [
+    ["username", "TEXT NOT NULL DEFAULT ''"],
     ["display_name", "TEXT NOT NULL DEFAULT ''"],
     ["department", "TEXT NOT NULL DEFAULT ''"],
     ["job_title", "TEXT NOT NULL DEFAULT ''"],
     ["auth_source", "TEXT NOT NULL DEFAULT 'ACTIVE_DIRECTORY'"],
     ["status", "TEXT NOT NULL DEFAULT 'ACTIVE'"],
+    ["failed_attempts", "INTEGER NOT NULL DEFAULT 0"],
+    ["locked_until", "TEXT"],
     ["last_login_at", "TEXT"],
     ["updated_at", "TEXT NOT NULL DEFAULT ''"],
   ] as const;
@@ -258,6 +275,11 @@ async function migrateLegacyRolesAndColumns(d1: D1Database) {
       await d1.prepare(`ALTER TABLE admin_users ADD COLUMN ${name} ${definition}`).run();
     }
   }
+  await d1
+    .prepare(`UPDATE admin_users
+      SET username = lower(substr(email, 1, instr(email, '@') - 1))
+      WHERE username = '' AND instr(email, '@') > 1`)
+    .run();
 
   const columns = await d1
     .prepare("PRAGMA table_info(confirmations)")
@@ -324,8 +346,9 @@ export async function updateRoleMenuPermission(role: UserRole, menuId: MenuId, c
 
 export async function listUsers() {
   const result = await db()
-    .prepare(`SELECT email, role, display_name, department, job_title,
-      auth_source, status, last_login_at, created_at, updated_at
+    .prepare(`SELECT email, username, role, display_name, department, job_title,
+      auth_source, status, failed_attempts, locked_until, last_login_at,
+      created_at, updated_at
       FROM admin_users
       ORDER BY CASE status WHEN 'ACTIVE' THEN 0 ELSE 1 END, display_name, email`)
     .all<ManagedUser>();
@@ -338,16 +361,36 @@ export async function upsertUser(
   profile?: Partial<Omit<ManagedUser, "email" | "role" | "created_at" | "updated_at">>,
 ) {
   if (!ROLES.includes(role)) throw new Error("Invalid role");
+  const normalizedEmail = email.trim().toLowerCase();
+  const current = await db()
+    .prepare("SELECT role, status FROM admin_users WHERE email = ?")
+    .bind(normalizedEmail)
+    .first<{ role: UserRole; status: ManagedUser["status"] }>();
+  const requestedStatus = profile?.status === "SUSPENDED" ? "SUSPENDED" : "ACTIVE";
+  if (
+    current?.role === "ADMINISTRATOR"
+    && current.status === "ACTIVE"
+    && (role !== "ADMINISTRATOR" || requestedStatus !== "ACTIVE")
+  ) {
+    await ensureActiveAdministratorRemains(normalizedEmail);
+  }
+  const username = normalizeUsername(profile?.username ?? email.split("@")[0]);
+  const duplicate = await db()
+    .prepare("SELECT email FROM admin_users WHERE username = ? AND email <> ?")
+    .bind(username, normalizedEmail)
+    .first<{ email: string }>();
+  if (duplicate) throw new Error("Username นี้ถูกใช้งานแล้ว");
   const displayName = profile?.display_name?.trim() ?? "";
   const department = profile?.department?.trim() ?? "";
   const jobTitle = profile?.job_title?.trim() ?? "";
   const authSource = profile?.auth_source === "LOCAL" ? "LOCAL" : "ACTIVE_DIRECTORY";
-  const status = profile?.status === "SUSPENDED" ? "SUSPENDED" : "ACTIVE";
+  const status = requestedStatus;
   await db()
     .prepare(`INSERT INTO admin_users
-      (email, role, display_name, department, job_title, auth_source, status, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      (email, username, role, display_name, department, job_title, auth_source, status, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       ON CONFLICT(email) DO UPDATE SET
+        username = excluded.username,
         role = excluded.role,
         display_name = excluded.display_name,
         department = excluded.department,
@@ -356,7 +399,8 @@ export async function upsertUser(
         status = excluded.status,
         updated_at = CURRENT_TIMESTAMP`)
     .bind(
-      email.trim().toLowerCase(),
+      normalizedEmail,
+      username,
       role,
       displayName,
       department,
@@ -367,6 +411,78 @@ export async function upsertUser(
     .run();
 }
 
+function normalizeUsername(value: string) {
+  const username = value.trim().toLowerCase();
+  if (!/^[a-z0-9._-]{2,64}$/.test(username)) {
+    throw new Error("Username ต้องมี 2-64 ตัว และใช้ได้เฉพาะ a-z, 0-9, จุด, ขีดกลาง หรือขีดล่าง");
+  }
+  return username;
+}
+
+async function ensureActiveAdministratorRemains(email: string) {
+  const normalized = email.trim().toLowerCase();
+  const row = await db()
+    .prepare("SELECT role, status FROM admin_users WHERE email = ?")
+    .bind(normalized)
+    .first<{ role: UserRole; status: ManagedUser["status"] }>();
+  if (!row || row.role !== "ADMINISTRATOR" || row.status !== "ACTIVE") return;
+  const count = await db()
+    .prepare("SELECT COUNT(*) AS count FROM admin_users WHERE role = 'ADMINISTRATOR' AND status = 'ACTIVE'")
+    .first<{ count: number }>();
+  if ((count?.count ?? 0) <= 1) {
+    throw new Error("ต้องมี Administrator ที่ใช้งานอยู่อย่างน้อย 1 คน");
+  }
+}
+
+export async function setUserStatus(
+  email: string,
+  status: ManagedUser["status"],
+) {
+  const normalized = email.trim().toLowerCase();
+  if (status === "SUSPENDED") await ensureActiveAdministratorRemains(normalized);
+  await db()
+    .prepare(`UPDATE admin_users
+      SET status = ?, locked_until = NULL, updated_at = CURRENT_TIMESTAMP
+      WHERE email = ?`)
+    .bind(status, normalized)
+    .run();
+}
+
+export async function unlockUser(email: string) {
+  await db()
+    .prepare(`UPDATE admin_users
+      SET failed_attempts = 0, locked_until = NULL, status = 'ACTIVE',
+          updated_at = CURRENT_TIMESTAMP
+      WHERE email = ?`)
+    .bind(email.trim().toLowerCase())
+    .run();
+}
+
+export async function recordUserAdminEvent(
+  actorEmail: string,
+  action: string,
+  targetEmail: string,
+  detail: string,
+) {
+  await db()
+    .prepare(`INSERT INTO audit_events
+      (confirmation_id, action, actor_email, detail)
+      VALUES (NULL, ?, ?, ?)`)
+    .bind(action, actorEmail, `${targetEmail}: ${detail}`)
+    .run();
+}
+
+export async function listUserAdminEvents() {
+  const result = await db()
+    .prepare(`SELECT id, action, actor_email, detail, created_at
+      FROM audit_events
+      WHERE action LIKE 'USER_%'
+      ORDER BY id DESC
+      LIMIT 30`)
+    .all<UserAdminEvent>();
+  return result.results;
+}
+
 export async function deleteUser(email: string) {
   const normalized = email.trim().toLowerCase();
   const row = await db()
@@ -374,14 +490,7 @@ export async function deleteUser(email: string) {
     .bind(normalized)
     .first<{ role: UserRole }>();
   if (!row) return;
-  if (row.role === "ADMINISTRATOR") {
-    const count = await db()
-      .prepare("SELECT COUNT(*) AS count FROM admin_users WHERE role = 'ADMINISTRATOR'")
-      .first<{ count: number }>();
-    if ((count?.count ?? 0) <= 1) {
-      throw new Error("At least one Administrator must remain");
-    }
-  }
+  await ensureActiveAdministratorRemains(normalized);
   await db().prepare("DELETE FROM admin_users WHERE email = ?").bind(normalized).run();
 }
 

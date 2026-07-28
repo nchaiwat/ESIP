@@ -366,9 +366,22 @@ main { margin-left: 248px; min-height: 100vh; }
 .row-actions button { margin: 0; padding: 8px 10px; }
 .user-editor { width: min(760px, 100%); max-height: calc(100vh - 56px); overflow: auto; padding: 24px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
 .user-editor-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 22px; }
+.user-editor-grid label > small { color: var(--muted); line-height: 1.4; }
 .user-editor-grid input:disabled { opacity: .65; cursor: not-allowed; }
 .editor-note { margin-top: 18px; padding: 12px; color: var(--muted); background: var(--surface-high); border-left: 3px solid var(--teal); font-size: 12px; }
 .editor-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+.user-activity { padding: 20px 24px 24px; border-top: 1px solid var(--line); }
+.user-activity h4 { margin: 5px 0 0; font-size: 16px; }
+.user-activity article {
+  display: grid;
+  grid-template-columns: 14px 1fr;
+  gap: 10px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+.user-activity .panel-head + article { margin-top: 14px; }
+.user-activity p { margin: 4px 0; color: var(--muted); font-size: 12px; }
+.user-activity small { color: var(--muted); font-size: 10px; }
 .queue-tools {
   display: grid; grid-template-columns: 210px minmax(260px, 1fr) auto;
   align-items: center; gap: 10px; margin-bottom: 16px;
