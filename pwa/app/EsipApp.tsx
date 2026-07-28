@@ -590,25 +590,30 @@ export default function EsipApp() {
     setMasterSuggestions((old) => ({ ...old, [String(item.id)]: payload.items ?? [] }));
   }
 
-  async function saveUser(draft = userDraft) {
+  async function saveUser(draft = userDraft, credentials?: { password?: string; pin?: string }) {
     const email = draft.email.trim().toLowerCase();
     if (!email.includes("@")) {
       setMessage("กรุณากรอกอีเมลให้ถูกต้อง");
       return;
     }
-    await saveUserProfile({ ...draft, email });
+    await saveUserProfile({ ...draft, email }, credentials);
     setUserDraft(emptyUserDraft);
     setEditingUser(null);
   }
 
-  async function saveUserProfile(draft: UserDraft) {
+  async function signOut() {
+    await fetch("/api/auth", { method: "DELETE" });
+    window.location.reload();
+  }
+
+  async function saveUserProfile(draft: UserDraft, credentials?: { password?: string; pin?: string }) {
     const response = await fetch("/api/users", {
       method: "POST",
       headers: {
         "content-type": "application/json",
         "x-esip-local-role": localRole,
       },
-      body: JSON.stringify(draft),
+      body: JSON.stringify({ ...draft, ...credentials }),
     });
     const payload = (await response.json()) as { users?: UserRow[]; events?: UserAdminEvent[]; error?: string };
     if (!response.ok) {
@@ -765,6 +770,9 @@ export default function EsipApp() {
     return "analytics-modules";
   };
 
+  if (!auth && loading) return <div className="auth-loading">กำลังตรวจสอบสิทธิ์การใช้งาน…</div>;
+  if (auth?.mode === "ANONYMOUS") return <LoginScreen />;
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -882,6 +890,7 @@ export default function EsipApp() {
               <div><p className="eyebrow teal">AVAILABLE ANALYTICS</p><h3>ข้อมูลจริงที่เปิดดูได้ทันที</h3></div>
               <small>แสดงบนหน้า Overview โดยไม่ต้องกดเปิด Detail</small>
             </div>
+            {auth?.mode === "PRIVATE_SITE" && <button className="theme-toggle" onClick={signOut}>ออกจากระบบ</button>}
             <div className="live-analytics-grid">
               <article className="panel mt-mix live-analytics-panel">
                 <div className="panel-head"><div><p className="eyebrow">MT CONTRIBUTION</p><h3>สัดส่วนยอดขายตาม MT</h3></div><span className="status-pill">LIVE</span></div>
@@ -1285,7 +1294,7 @@ export default function EsipApp() {
             isNew={!users.some((user) => user.email === editingUser.email)}
             onCancel={() => setEditingUser(null)}
             onChange={setEditingUser}
-            onSave={() => saveUser(editingUser)}
+            onSave={(credentials) => saveUser(editingUser, credentials)}
           />
         )}
       </main>
@@ -1392,6 +1401,123 @@ function YoYAnalyticsPanel({
         ))}
       </div>
     </article>
+  );
+}
+
+function LoginScreen() {
+  const [method, setMethod] = useState<"LOCAL" | "ACTIVE_DIRECTORY" | "PIN">("LOCAL");
+  const [setupRequired, setSetupRequired] = useState(false);
+  const [adConfigured, setAdConfigured] = useState(false);
+  const [identifier, setIdentifier] = useState("");
+  const [secret, setSecret] = useState("");
+  const [setupEmail, setSetupEmail] = useState("");
+  const [setupPassword, setSetupPassword] = useState("");
+  const [setupPin, setSetupPin] = useState("");
+  const [error, setError] = useState("");
+  const [working, setWorking] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/auth")
+      .then((response) => response.json() as Promise<{ setupRequired?: boolean; adConfigured?: boolean }>)
+      .then((payload) => {
+        setSetupRequired(Boolean(payload.setupRequired));
+        setAdConfigured(Boolean(payload.adConfigured));
+      })
+      .catch(() => setError("ไม่สามารถตรวจสอบระบบ Login ได้"));
+  }, []);
+
+  async function submitLogin(event: React.FormEvent) {
+    event.preventDefault();
+    setWorking(true);
+    setError("");
+    try {
+      const response = await fetch("/api/auth", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "LOGIN", identifier: identifier.trim(), secret, method }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(payload.error ?? "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง");
+      window.location.reload();
+    } catch (loginError) {
+      setError(loginError instanceof Error ? loginError.message : "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง");
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  async function submitSetup(event: React.FormEvent) {
+    event.preventDefault();
+    setWorking(true);
+    setError("");
+    try {
+      const response = await fetch("/api/auth", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "SETUP",
+          email: setupEmail.trim().toLowerCase(),
+          password: setupPassword,
+          pin: setupPin,
+        }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(payload.error ?? "ตั้งค่าผู้ดูแลไม่สำเร็จ");
+      setSetupRequired(false);
+      setIdentifier(setupEmail.trim().toLowerCase());
+      setSecret("");
+    } catch (setupError) {
+      setError(setupError instanceof Error ? setupError.message : "ตั้งค่าผู้ดูแลไม่สำเร็จ");
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  return (
+    <main className="login-page">
+      <section className="login-brand">
+        <span className="brand-mark">EI</span>
+        <div><strong>ESIP</strong><small>Enterprise Intelligence</small></div>
+        <h1>One version<br />of the truth</h1>
+        <p>ระบบข้อมูลยอดขายและการบริหารสิทธิ์สำหรับผู้ใช้งานที่ได้รับอนุญาต</p>
+      </section>
+      <section className="login-surface">
+        <div className="login-form-head"><p className="eyebrow teal">{setupRequired ? "FIRST-TIME SETUP" : "SECURE ACCESS"}</p><h2>{setupRequired ? "ตั้งค่าผู้ดูแลระบบ" : "เข้าสู่ระบบ ESIP"}</h2></div>
+        {error && <div className="login-error" role="alert">{error}</div>}
+        {setupRequired ? (
+          <form onSubmit={submitSetup} className="login-form">
+            <label><span>อีเมล Administrator</span><input type="email" required value={setupEmail} onChange={(event) => setSetupEmail(event.target.value)} placeholder="admin@company.com" autoComplete="username" /></label>
+            <label><span>Password ใหม่</span><input type="password" required minLength={10} value={setupPassword} onChange={(event) => setSetupPassword(event.target.value)} placeholder="อย่างน้อย 10 ตัวอักษร" autoComplete="new-password" /></label>
+            <label><span>PIN สำรอง 6 หลัก</span><input type="password" required inputMode="numeric" pattern="\d{6}" maxLength={6} value={setupPin} onChange={(event) => setSetupPin(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="••••••" autoComplete="new-password" /></label>
+            <button className="login-submit" disabled={working}>{working ? "กำลังบันทึก…" : "ตั้งค่าและไปหน้า Login"}</button>
+          </form>
+        ) : (
+          <>
+            <div className="login-methods" role="tablist" aria-label="วิธีเข้าสู่ระบบ">
+              <button className={method === "LOCAL" ? "active" : ""} onClick={() => { setMethod("LOCAL"); setSecret(""); }}>บัญชี ESIP</button>
+              <button
+                className={method === "ACTIVE_DIRECTORY" ? "active" : ""}
+                disabled={!adConfigured}
+                title={adConfigured ? "เข้าสู่ระบบด้วย Windows Active Directory" : "ยังไม่ได้ตั้งค่า AD Gateway"}
+                onClick={() => { setMethod("ACTIVE_DIRECTORY"); setSecret(""); }}
+              >
+                Windows AD
+              </button>
+              <button className={method === "PIN" ? "active" : ""} onClick={() => { setMethod("PIN"); setSecret(""); }}>PIN</button>
+            </div>
+            <form onSubmit={submitLogin} className="login-form">
+              <label><span>Username หรือ Email</span><input required value={identifier} onChange={(event) => setIdentifier(event.target.value)} placeholder={method === "ACTIVE_DIRECTORY" ? "ระบุ Username โดยไม่ต้องใส่ @company.com" : "username หรือ name@company.com"} autoComplete="username" /></label>
+              <label><span>{method === "PIN" ? "PIN 6 หลัก" : "Password"}</span><input type="password" required inputMode={method === "PIN" ? "numeric" : undefined} maxLength={method === "PIN" ? 6 : undefined} value={secret} onChange={(event) => setSecret(method === "PIN" ? event.target.value.replace(/\D/g, "").slice(0, 6) : event.target.value)} placeholder={method === "PIN" ? "••••••" : "Password"} autoComplete="current-password" /></label>
+              <button className="login-submit" disabled={working}>{working ? "กำลังตรวจสอบ…" : method === "PIN" ? "เข้าสู่ระบบด้วย PIN" : "เข้าสู่ระบบ"}</button>
+            </form>
+            <p className="login-security-note">
+              Session หมดอายุใน 8 ชั่วโมง · ระบบไม่จัดเก็บรหัสผ่าน Active Directory
+              {!adConfigured && <><br />Windows AD จะเปิดใช้งานหลังตั้งค่า AD Gateway</>}
+            </p>
+          </>
+        )}
+      </section>
+    </main>
   );
 }
 
@@ -1789,8 +1915,10 @@ function UserEditor({
   isNew: boolean;
   onCancel: () => void;
   onChange: (draft: UserDraft) => void;
-  onSave: () => void;
+  onSave: (credentials: { password?: string; pin?: string }) => void;
 }) {
+  const [password, setPassword] = useState("");
+  const [pin, setPin] = useState("");
   const update = <K extends keyof UserDraft>(key: K, value: UserDraft[K]) => onChange({ ...draft, [key]: value });
   return (
     <div className="module-modal-backdrop" role="dialog" aria-modal="true" aria-label={isNew ? "เพิ่มผู้ใช้" : "แก้ไขผู้ใช้"}>
@@ -1808,9 +1936,11 @@ function UserEditor({
           <label><span>Role</span><select value={draft.role} onChange={(event) => update("role", event.target.value as Role)}><option value="ADMINISTRATOR">Administrator</option><option value="SALE_ADMIN">Sale Admin</option><option value="USER">User</option></select></label>
           <label><span>วิธีเข้าสู่ระบบ</span><select value={draft.auth_source} onChange={(event) => update("auth_source", event.target.value as UserDraft["auth_source"])}><option value="ACTIVE_DIRECTORY">Windows Active Directory</option><option value="LOCAL">Local account</option></select></label>
           <label><span>สถานะ</span><select value={draft.status} onChange={(event) => update("status", event.target.value as UserDraft["status"])}><option value="ACTIVE">ใช้งานอยู่</option><option value="SUSPENDED">ระงับใช้งาน</option></select></label>
+          {draft.auth_source === "LOCAL" && <label><span>{isNew ? "Password" : "ตั้ง Password ใหม่"}</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="อย่างน้อย 10 ตัวอักษร" autoComplete="new-password" /></label>}
+          <label><span>{isNew ? "PIN 6 หลัก" : "ตั้ง PIN ใหม่"}</span><input type="password" inputMode="numeric" maxLength={6} value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="••••••" autoComplete="new-password" /></label>
         </div>
         <div className="editor-note">ระบบใช้ Role ร่วมกับ Authorize Matrix และจะไม่จัดเก็บรหัสผ่าน Active Directory ไว้ใน ESIP</div>
-        <div className="editor-actions"><button className="reject" onClick={onCancel}>ยกเลิก</button><button className="approve" onClick={onSave}>บันทึกข้อมูล</button></div>
+        <div className="editor-actions"><button className="reject" onClick={onCancel}>ยกเลิก</button><button className="approve" onClick={() => onSave({ password: password || undefined, pin: pin || undefined })}>บันทึกข้อมูล</button></div>
       </article>
     </div>
   );

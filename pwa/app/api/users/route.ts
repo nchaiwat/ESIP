@@ -11,6 +11,7 @@ import {
   type UserRole,
   type ManagedUser,
 } from "../../../db/confirmation-store";
+import { setUserCredentials } from "../../../db/auth-store";
 import { resolveRequestActor } from "../request-auth";
 
 export const dynamic = "force-dynamic";
@@ -42,6 +43,8 @@ export async function POST(request: Request) {
     job_title?: string;
     auth_source?: ManagedUser["auth_source"];
     status?: ManagedUser["status"];
+    password?: string;
+    pin?: string;
   };
   const email = body.email?.trim().toLowerCase() ?? "";
   if (!email.includes("@") || !body.role || !ROLES.includes(body.role)) {
@@ -56,6 +59,7 @@ export async function POST(request: Request) {
       auth_source: body.auth_source,
       status: body.status,
     });
+    await setUserCredentials(email, { password: body.password, pin: body.pin });
     await recordUserAdminEvent(
       actor.user?.email ?? "local-administrator@esip.local",
       "USER_SAVED",

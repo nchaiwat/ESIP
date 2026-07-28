@@ -1,4 +1,6 @@
+import { env } from "cloudflare:workers";
 import { getChatGPTUser } from "../chatgpt-auth";
+import { getSessionUser } from "../../db/auth-store";
 import {
   ensureBootstrapAdmin,
   getUserRole,
@@ -12,6 +14,19 @@ export function isLocalRequest(request: Request) {
 }
 
 export async function resolveRequestActor(request: Request) {
+  const session = await getSessionUser(readCookie(request, "esip_session"));
+  if (session) {
+    return {
+      user: {
+        displayName: session.display_name || session.username,
+        email: session.email,
+        fullName: session.display_name || null,
+      },
+      role: session.role,
+      mode: "PRIVATE_SITE" as const,
+    };
+  }
+
   const signedInUser = await getChatGPTUser();
   if (signedInUser) {
     await ensureBootstrapAdmin(signedInUser.email);
@@ -23,6 +38,11 @@ export async function resolveRequestActor(request: Request) {
   }
 
   if (!isLocalRequest(request)) {
+    return { user: null, role: "USER" as UserRole, mode: "ANONYMOUS" as const };
+  }
+
+  const config = env as unknown as Record<string, string | undefined>;
+  if (config.ESIP_LOCAL_TRIAL?.toLowerCase() !== "true") {
     return { user: null, role: "USER" as UserRole, mode: "ANONYMOUS" as const };
   }
 
@@ -44,4 +64,10 @@ export async function resolveRequestActor(request: Request) {
     role,
     mode: "LOCAL_TRIAL" as const,
   };
+}
+
+function readCookie(request: Request, name: string) {
+  const value = request.headers.get("cookie") ?? "";
+  const item = value.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${name}=`));
+  return item ? item.slice(name.length + 1) : "";
 }

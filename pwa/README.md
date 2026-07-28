@@ -15,14 +15,29 @@ From the workspace root:
 
 The Docker volumes keep PWA role, confirmation, and audit state between restarts.
 
+## Login and authentication
+
+1. Open `http://localhost:3000` on the server for the first-time setup.
+2. Enter an existing Administrator email, then create a password of at least 10 characters and a 6-digit fallback PIN.
+3. Sign in with the ESIP account or PIN. Administrators can reset credentials and manage account status in User Management.
+
+Passwords and PINs are stored as salted PBKDF2-SHA256 hashes. Sessions use an
+opaque server-side token in an HttpOnly, SameSite=Strict cookie and expire after
+8 hours. Failed login attempts are audited and trigger temporary lockout.
+
+Windows AD login requires `ESIP_AD_GATEWAY_URL` and `ESIP_AD_GATEWAY_KEY`.
+The ESIP server forwards the credential to that gateway for verification and
+never stores the AD password.
+
 ## Roles
 
 - `ADMINISTRATOR`: all frontend, confirmation, audit, user-role, and settings access
 - `SALE_ADMIN`: all sales-facing data, confirmation, and audit access; no settings
 - `USER`: frontend dashboard and source information only
 
-The localhost role selector exists for trial use. The private hosted site resolves
-roles from the authenticated email and the server-side `admin_users` table.
+The previous localhost role selector is disabled by default. It is available
+only when `ESIP_LOCAL_TRIAL=true`; normal use resolves the role from the signed-in
+user and the server-side `admin_users` table.
 
 ## Immediate apply
 

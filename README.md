@@ -4,9 +4,11 @@
 
 - PWA Dashboard ใช้งานที่ `http://localhost:3000`
 - Apply Bridge/API ใช้งานที่ `http://localhost:8090`
+- เปิดใช้งานครั้งแรกที่เครื่อง Server ระบบจะแสดงหน้า First-time Setup ให้เลือกอีเมล Administrator ที่มีอยู่ แล้วกำหนด Password และ PIN 6 หลัก
+- หลังตั้งค่า ผู้ใช้เข้าสู่ระบบได้ด้วยบัญชี ESIP, PIN หรือ Windows AD เมื่อเชื่อม AD Gateway แล้ว; session มีอายุ 8 ชั่วโมง
 - หน้าแหล่งข้อมูลแสดงสถานะ RAW แยก MT พร้อมวันที่ Sales ล่าสุด, Inventory ล่าสุด, lag, จำนวนวันในระบบ, pending files, local path และ NAS path
 - Authorize Matrix เป็นแบบ Admin managed มีปุ่ม `Save changes` และ `Discard` สำหรับบันทึกหรือยกเลิกสิทธิ์ราย Role
-- User Management เพิ่มผู้ใช้, เปลี่ยน Role และลบผู้ใช้ได้ โดยระบบกันไม่ให้ลบ Administrator คนสุดท้าย
+- User Management เพิ่ม/แก้ไขผู้ใช้, ตั้ง Password/PIN, เลือก Local/AD, เปลี่ยน Role, ระงับ, ปลดล็อก และลบผู้ใช้ได้ โดยระบบกันไม่ให้ลบ Administrator คนสุดท้าย
 - Dashboard module card เปิดดูรายละเอียดขนาดใหญ่ได้ และ module ที่ยังไม่มี input จริงจะแสดงเป็น simulation/model อย่างชัดเจน
 - ข้อมูลที่ยังไม่มี input จริง เช่น target, cost/COGS, PO/on-order, aging และ forecast ยังต้องเชื่อม source จริงเพิ่มเติม
 

@@ -38,6 +38,9 @@ services:
     environment:
       ESIP_APPLY_URL: http://apply-bridge:8090/apply
       ESIP_APPLY_TOKEN: esip-local-apply-token
+      ESIP_AD_GATEWAY_URL: ${ESIP_AD_GATEWAY_URL:-}
+      ESIP_AD_GATEWAY_KEY: ${ESIP_AD_GATEWAY_KEY:-}
+      ESIP_LOCAL_TRIAL: ${ESIP_LOCAL_TRIAL:-false}
       CHOKIDAR_USEPOLLING: "true"
     ports:
       - "127.0.0.1:3000:3000"

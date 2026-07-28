@@ -34,6 +34,9 @@ const localBindingConfig = {
   vars: {
     ESIP_APPLY_URL: process.env.ESIP_APPLY_URL ?? "",
     ESIP_APPLY_TOKEN: process.env.ESIP_APPLY_TOKEN ?? "",
+    ESIP_AD_GATEWAY_URL: process.env.ESIP_AD_GATEWAY_URL ?? "",
+    ESIP_AD_GATEWAY_KEY: process.env.ESIP_AD_GATEWAY_KEY ?? "",
+    ESIP_LOCAL_TRIAL: process.env.ESIP_LOCAL_TRIAL ?? "false",
   },
 };
 

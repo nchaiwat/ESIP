@@ -14,6 +14,16 @@ export async function GET(request: Request) {
   try {
     await ensureConfirmationStore();
     const actor = await resolveRequestActor(request);
+    if (!actor.user) {
+      return Response.json({
+        confirmations: [],
+        audit: [],
+        user: null,
+        role: "USER",
+        canConfirm: false,
+        mode: actor.mode,
+      });
+    }
     return Response.json({
       confirmations: await listConfirmations(),
       audit: await listAuditEvents(),
