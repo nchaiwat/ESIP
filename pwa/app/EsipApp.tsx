@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Role = "ADMINISTRATOR" | "SALE_ADMIN" | "USER";
@@ -33,7 +34,7 @@ type ApiPayload = {
   canConfirm: boolean;
   role: Role;
   mode: "LOCAL_TRIAL" | "PRIVATE_SITE" | "ANONYMOUS";
-  user: { displayName: string; email: string } | null;
+  user: { displayName: string; email: string; username?: string } | null;
   error?: string;
 };
 
@@ -310,6 +311,7 @@ export default function EsipApp() {
   const [cogsLift, setCogsLift] = useState(2);
   const [volumeLift, setVolumeLift] = useState(0);
   const [expandedModule, setExpandedModule] = useState<string | null>(null);
+  const [accountOpen, setAccountOpen] = useState(false);
 
   const bridgeHeaders = {
     "content-type": "application/json",
@@ -366,9 +368,10 @@ export default function EsipApp() {
       .then(async (response) => readJsonResponse<ApiPayload>(response, "Authorization API"))
       .then(async (payload) => {
         setAuth(payload);
-        if (payload.mode === "LOCAL_TRIAL") {
+        if (payload.user) {
           await loadDashboardData();
-        } else {
+        }
+        if (payload.mode !== "LOCAL_TRIAL") {
           setQueue(payload.confirmations ?? []);
           setAudit(payload.audit ?? []);
         }
@@ -777,7 +780,7 @@ export default function EsipApp() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <span className="brand-mark">EI</span>
+          <Image className="brand-mark" src="/favicon.svg" alt="ESIP" width={40} height={40} priority />
           <span><strong>ESIP</strong><small>Enterprise Intelligence</small></span>
         </div>
         <nav aria-label="เมนูหลัก">
@@ -824,10 +827,10 @@ export default function EsipApp() {
                 </select>
               </label>
             )}
-            <div className="user-chip">
+            <button className="user-chip" onClick={() => setAccountOpen(true)} title="บัญชีและความปลอดภัย">
               <span className="avatar">{auth?.user?.displayName?.slice(0, 1) ?? "E"}</span>
-              <span><strong>{auth?.user?.displayName ?? "ESIP User"}</strong><small>{auth ? roleLabels[auth.role] : "USER"}</small></span>
-            </div>
+              <span><strong>{auth?.user?.displayName ?? "ESIP User"}</strong><small>{auth?.user?.username ? `@${auth.user.username} · ` : ""}{auth ? roleLabels[auth.role] : "USER"}</small></span>
+            </button>
           </div>
         </header>
 
@@ -858,7 +861,7 @@ export default function EsipApp() {
               </article>
               <article className="panel action-panel">
                 <div className="panel-head"><div><p className="eyebrow">REFERENCE COVERAGE</p><h3>สิ่งที่ดูได้แล้ว</h3></div></div>
-                {(dashboard?.reference_coverage ?? []).slice(0, 5).map((item, index) => (
+                {(dashboard?.reference_coverage ?? []).map((item, index) => (
                   <div className="action-row" key={item.report}>
                     <span>{String(index + 1).padStart(2, "0")}</span>
                     <div><strong>{item.report}</strong><small>{item.note}</small></div>
@@ -890,7 +893,6 @@ export default function EsipApp() {
               <div><p className="eyebrow teal">AVAILABLE ANALYTICS</p><h3>ข้อมูลจริงที่เปิดดูได้ทันที</h3></div>
               <small>แสดงบนหน้า Overview โดยไม่ต้องกดเปิด Detail</small>
             </div>
-            {auth?.mode === "PRIVATE_SITE" && <button className="theme-toggle" onClick={signOut}>ออกจากระบบ</button>}
             <div className="live-analytics-grid">
               <article className="panel mt-mix live-analytics-panel">
                 <div className="panel-head"><div><p className="eyebrow">MT CONTRIBUTION</p><h3>สัดส่วนยอดขายตาม MT</h3></div><span className="status-pill">LIVE</span></div>
@@ -1297,6 +1299,13 @@ export default function EsipApp() {
             onSave={(credentials) => saveUser(editingUser, credentials)}
           />
         )}
+        {accountOpen && auth?.user && (
+          <AccountSecurity
+            user={auth.user}
+            onClose={() => setAccountOpen(false)}
+            onSignOut={signOut}
+          />
+        )}
       </main>
 
       <nav className="mobile-nav" aria-label="เมนูมือถือ">
@@ -1476,7 +1485,7 @@ function LoginScreen() {
   return (
     <main className="login-page">
       <section className="login-brand">
-        <span className="brand-mark">EI</span>
+        <Image className="brand-mark" src="/favicon.svg" alt="ESIP" width={40} height={40} priority />
         <div><strong>ESIP</strong><small>Enterprise Intelligence</small></div>
         <h1>One version<br />of the truth</h1>
         <p>ระบบข้อมูลยอดขายและการบริหารสิทธิ์สำหรับผู้ใช้งานที่ได้รับอนุญาต</p>
@@ -1487,8 +1496,8 @@ function LoginScreen() {
         {setupRequired ? (
           <form onSubmit={submitSetup} className="login-form">
             <label><span>อีเมล Administrator</span><input type="email" required value={setupEmail} onChange={(event) => setSetupEmail(event.target.value)} placeholder="admin@company.com" autoComplete="username" /></label>
-            <label><span>Password ใหม่</span><input type="password" required minLength={10} value={setupPassword} onChange={(event) => setSetupPassword(event.target.value)} placeholder="อย่างน้อย 10 ตัวอักษร" autoComplete="new-password" /></label>
-            <label><span>PIN สำรอง 6 หลัก</span><input type="password" required inputMode="numeric" pattern="\d{6}" maxLength={6} value={setupPin} onChange={(event) => setSetupPin(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="••••••" autoComplete="new-password" /></label>
+            <label><span>Password ใหม่</span><SecretInput required minLength={10} value={setupPassword} onChange={setSetupPassword} placeholder="อย่างน้อย 10 ตัวอักษร" autoComplete="new-password" /></label>
+            <label><span>PIN สำรอง 6 หลัก</span><SecretInput required numeric maxLength={6} value={setupPin} onChange={setSetupPin} placeholder="6 หลัก" autoComplete="new-password" /></label>
             <button className="login-submit" disabled={working}>{working ? "กำลังบันทึก…" : "ตั้งค่าและไปหน้า Login"}</button>
           </form>
         ) : (
@@ -1507,7 +1516,7 @@ function LoginScreen() {
             </div>
             <form onSubmit={submitLogin} className="login-form">
               <label><span>Username หรือ Email</span><input required value={identifier} onChange={(event) => setIdentifier(event.target.value)} placeholder={method === "ACTIVE_DIRECTORY" ? "ระบุ Username โดยไม่ต้องใส่ @company.com" : "username หรือ name@company.com"} autoComplete="username" /></label>
-              <label><span>{method === "PIN" ? "PIN 6 หลัก" : "Password"}</span><input type="password" required inputMode={method === "PIN" ? "numeric" : undefined} maxLength={method === "PIN" ? 6 : undefined} value={secret} onChange={(event) => setSecret(method === "PIN" ? event.target.value.replace(/\D/g, "").slice(0, 6) : event.target.value)} placeholder={method === "PIN" ? "••••••" : "Password"} autoComplete="current-password" /></label>
+              <label><span>{method === "PIN" ? "PIN 6 หลัก" : "Password"}</span><SecretInput required numeric={method === "PIN"} maxLength={method === "PIN" ? 6 : undefined} value={secret} onChange={setSecret} placeholder={method === "PIN" ? "PIN 6 หลัก" : "Password"} autoComplete="current-password" /></label>
               <button className="login-submit" disabled={working}>{working ? "กำลังตรวจสอบ…" : method === "PIN" ? "เข้าสู่ระบบด้วย PIN" : "เข้าสู่ระบบ"}</button>
             </form>
             <p className="login-security-note">
@@ -1518,6 +1527,117 @@ function LoginScreen() {
         )}
       </section>
     </main>
+  );
+}
+
+function SecretInput({
+  value,
+  onChange,
+  numeric = false,
+  maxLength,
+  minLength,
+  required,
+  placeholder,
+  autoComplete,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  numeric?: boolean;
+  maxLength?: number;
+  minLength?: number;
+  required?: boolean;
+  placeholder?: string;
+  autoComplete?: string;
+}) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <span className="secret-input">
+      <input
+        type={visible ? "text" : "password"}
+        required={required}
+        inputMode={numeric ? "numeric" : undefined}
+        maxLength={maxLength}
+        minLength={minLength}
+        value={value}
+        onChange={(event) => onChange(numeric ? event.target.value.replace(/\D/g, "").slice(0, maxLength) : event.target.value)}
+        placeholder={placeholder}
+        autoComplete={autoComplete}
+      />
+      <button type="button" onClick={() => setVisible((current) => !current)} aria-label={visible ? "ซ่อนรหัส" : "แสดงรหัส"}>
+        {visible ? "ซ่อน" : "แสดง"}
+      </button>
+    </span>
+  );
+}
+
+function AccountSecurity({
+  user,
+  onClose,
+  onSignOut,
+}: {
+  user: NonNullable<ApiPayload["user"]>;
+  onClose: () => void;
+  onSignOut: () => void;
+}) {
+  const [currentMethod, setCurrentMethod] = useState<"LOCAL" | "PIN">("LOCAL");
+  const [currentSecret, setCurrentSecret] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [newPin, setNewPin] = useState("");
+  const [status, setStatus] = useState("");
+  const [working, setWorking] = useState(false);
+
+  async function save(event: React.FormEvent) {
+    event.preventDefault();
+    setWorking(true);
+    setStatus("");
+    try {
+      const response = await fetch("/api/auth", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "CHANGE_CREDENTIALS",
+          currentMethod,
+          currentSecret,
+          password: newPassword || undefined,
+          pin: newPin || undefined,
+        }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(payload.error ?? "บันทึกไม่สำเร็จ");
+      setCurrentSecret("");
+      setNewPassword("");
+      setNewPin("");
+      setStatus("บันทึก Password/PIN ใหม่เรียบร้อยแล้ว");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "บันทึกไม่สำเร็จ");
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  return (
+    <div className="module-modal-backdrop" role="dialog" aria-modal="true" aria-label="บัญชีและความปลอดภัย">
+      <article className="module-modal account-security">
+        <div className="module-modal-head">
+          <div><p className="eyebrow">MY ACCOUNT</p><h3>บัญชีและความปลอดภัย</h3></div>
+          <button className="reject" onClick={onClose}>ปิด</button>
+        </div>
+        <div className="account-identity">
+          <span className="avatar">{user.displayName.slice(0, 1)}</span>
+          <div><strong>{user.displayName}</strong><small>@{user.username ?? user.email.split("@")[0]} · {user.email}</small></div>
+        </div>
+        <form className="login-form" onSubmit={save}>
+          <label><span>ยืนยันตัวตนด้วย</span><select value={currentMethod} onChange={(event) => setCurrentMethod(event.target.value as "LOCAL" | "PIN")}><option value="LOCAL">Password ปัจจุบัน</option><option value="PIN">PIN ปัจจุบัน</option></select></label>
+          <label><span>{currentMethod === "PIN" ? "PIN ปัจจุบัน" : "Password ปัจจุบัน"}</span><SecretInput required numeric={currentMethod === "PIN"} maxLength={currentMethod === "PIN" ? 6 : undefined} value={currentSecret} onChange={setCurrentSecret} autoComplete="current-password" /></label>
+          <div className="editor-grid">
+            <label><span>Password ใหม่ (เว้นว่างถ้าไม่เปลี่ยน)</span><SecretInput minLength={10} value={newPassword} onChange={setNewPassword} placeholder="อย่างน้อย 10 ตัวอักษร" autoComplete="new-password" /></label>
+            <label><span>PIN ใหม่ (เว้นว่างถ้าไม่เปลี่ยน)</span><SecretInput numeric maxLength={6} value={newPin} onChange={setNewPin} placeholder="ตัวเลข 6 หลัก" autoComplete="new-password" /></label>
+          </div>
+          {status && <div className="editor-note" role="status">{status}</div>}
+          <div className="editor-actions"><button type="button" className="reject" onClick={onSignOut}>ออกจากระบบ</button><button className="approve" disabled={working || (!newPassword && !newPin)}>{working ? "กำลังบันทึก…" : "บันทึกการเปลี่ยนแปลง"}</button></div>
+        </form>
+      </article>
+    </div>
   );
 }
 
@@ -1929,15 +2049,15 @@ function UserEditor({
         </div>
         <div className="user-editor-grid">
           <label><span>ชื่อที่แสดง</span><input value={draft.display_name} onChange={(event) => update("display_name", event.target.value)} placeholder="ชื่อ นามสกุล" /></label>
-          <label><span>Username</span><input value={draft.username} onChange={(event) => update("username", event.target.value.toLowerCase())} placeholder="เช่น chaiwat.n" /><small>ใช้ a-z, 0-9, จุด, ขีดกลาง หรือขีดล่าง</small></label>
+          <label><span>User ID / AD Username</span><input value={draft.username} onChange={(event) => update("username", event.target.value)} placeholder="เช่น Chaiwat.N" /><small>รองรับตัวพิมพ์ใหญ่-เล็ก และ Login โดยไม่สนตัวพิมพ์</small></label>
           <label><span>อีเมล</span><input type="email" disabled={!isNew} value={draft.email} onChange={(event) => update("email", event.target.value)} placeholder="name@company.com" /></label>
           <label><span>แผนก</span><input value={draft.department} onChange={(event) => update("department", event.target.value)} placeholder="เช่น Sales, IT, Finance" /></label>
           <label><span>ตำแหน่ง</span><input value={draft.job_title} onChange={(event) => update("job_title", event.target.value)} placeholder="เช่น Manager, Analyst" /></label>
           <label><span>Role</span><select value={draft.role} onChange={(event) => update("role", event.target.value as Role)}><option value="ADMINISTRATOR">Administrator</option><option value="SALE_ADMIN">Sale Admin</option><option value="USER">User</option></select></label>
           <label><span>วิธีเข้าสู่ระบบ</span><select value={draft.auth_source} onChange={(event) => update("auth_source", event.target.value as UserDraft["auth_source"])}><option value="ACTIVE_DIRECTORY">Windows Active Directory</option><option value="LOCAL">Local account</option></select></label>
           <label><span>สถานะ</span><select value={draft.status} onChange={(event) => update("status", event.target.value as UserDraft["status"])}><option value="ACTIVE">ใช้งานอยู่</option><option value="SUSPENDED">ระงับใช้งาน</option></select></label>
-          {draft.auth_source === "LOCAL" && <label><span>{isNew ? "Password" : "ตั้ง Password ใหม่"}</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="อย่างน้อย 10 ตัวอักษร" autoComplete="new-password" /></label>}
-          <label><span>{isNew ? "PIN 6 หลัก" : "ตั้ง PIN ใหม่"}</span><input type="password" inputMode="numeric" maxLength={6} value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="••••••" autoComplete="new-password" /></label>
+          {draft.auth_source === "LOCAL" && <label><span>{isNew ? "Password" : "ตั้ง Password ใหม่"}</span><SecretInput minLength={10} value={password} onChange={setPassword} placeholder="อย่างน้อย 10 ตัวอักษร" autoComplete="new-password" /></label>}
+          <label><span>{isNew ? "PIN 6 หลัก" : "ตั้ง PIN ใหม่"}</span><SecretInput numeric maxLength={6} value={pin} onChange={setPin} placeholder="ตัวเลข 6 หลัก" autoComplete="new-password" /></label>
         </div>
         <div className="editor-note">ระบบใช้ Role ร่วมกับ Authorize Matrix และจะไม่จัดเก็บรหัสผ่าน Active Directory ไว้ใน ESIP</div>
         <div className="editor-actions"><button className="reject" onClick={onCancel}>ยกเลิก</button><button className="approve" onClick={() => onSave({ password: password || undefined, pin: pin || undefined })}>บันทึกข้อมูล</button></div>

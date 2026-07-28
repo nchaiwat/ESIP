@@ -21,6 +21,7 @@ export async function resolveRequestActor(request: Request) {
         displayName: session.display_name || session.username,
         email: session.email,
         fullName: session.display_name || null,
+        username: session.username,
       },
       role: session.role,
       mode: "PRIVATE_SITE" as const,

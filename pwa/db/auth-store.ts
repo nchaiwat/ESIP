@@ -178,6 +178,35 @@ export async function revokeSession(token: string) {
   await db().prepare("DELETE FROM auth_sessions WHERE token_hash = ?").bind(await sha256(token)).run();
 }
 
+export async function changeOwnCredentials(input: {
+  token: string;
+  currentSecret: string;
+  currentMethod: "LOCAL" | "PIN";
+  newPassword?: string;
+  newPin?: string;
+}) {
+  if (!input.newPassword && !input.newPin) throw new Error("กรุณาระบุ Password หรือ PIN ใหม่");
+  await ensureAuthStore();
+  const tokenHash = await sha256(input.token);
+  const user = await db()
+    .prepare(`SELECT u.email, u.credential_hash, u.pin_hash
+      FROM auth_sessions s JOIN admin_users u ON u.email = s.email
+      WHERE s.token_hash = ? AND s.expires_at > ? AND u.status = 'ACTIVE'`)
+    .bind(tokenHash, new Date().toISOString())
+    .first<{ email: string; credential_hash: string | null; pin_hash: string | null }>();
+  if (!user) throw new Error("Session หมดอายุ กรุณาเข้าสู่ระบบใหม่");
+  const currentHash = input.currentMethod === "PIN" ? user.pin_hash : user.credential_hash;
+  if (!currentHash || !(await verifySecret(input.currentSecret, currentHash))) {
+    throw new Error("Password หรือ PIN ปัจจุบันไม่ถูกต้อง");
+  }
+  await setUserCredentials(user.email, { password: input.newPassword, pin: input.newPin });
+  await db()
+    .prepare("DELETE FROM auth_sessions WHERE email = ? AND token_hash <> ?")
+    .bind(user.email, tokenHash)
+    .run();
+  return user.email;
+}
+
 function loginEvent(username: string, result: string, method: string, ip: string, agent: string, reason: string) {
   return db()
     .prepare(`INSERT INTO auth_login_events
@@ -241,4 +270,3 @@ function constantTimeEqual(left: Uint8Array, right: Uint8Array) {
   for (let index = 0; index < left.length; index += 1) difference |= left[index] ^ right[index];
   return difference === 0;
 }
-

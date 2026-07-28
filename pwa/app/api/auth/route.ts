@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import {
   authenticateUser,
+  changeOwnCredentials,
   needsInitialSetup,
   revokeSession,
   setUserCredentials,
@@ -23,14 +24,35 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   const body = (await request.json()) as {
-    action?: "LOGIN" | "SETUP";
+    action?: "LOGIN" | "SETUP" | "CHANGE_CREDENTIALS";
     identifier?: string;
     secret?: string;
     method?: "LOCAL" | "PIN" | "ACTIVE_DIRECTORY";
     email?: string;
     password?: string;
     pin?: string;
+    currentSecret?: string;
+    currentMethod?: "LOCAL" | "PIN";
   };
+
+  if (body.action === "CHANGE_CREDENTIALS") {
+    try {
+      const email = await changeOwnCredentials({
+        token: readCookie(request, COOKIE_NAME),
+        currentSecret: body.currentSecret ?? "",
+        currentMethod: body.currentMethod === "PIN" ? "PIN" : "LOCAL",
+        newPassword: body.password,
+        newPin: body.pin,
+      });
+      await recordUserAdminEvent(email, "OWN_CREDENTIALS_CHANGED", email, "User changed own Password or PIN");
+      return Response.json({ ok: true });
+    } catch (error) {
+      return Response.json(
+        { error: error instanceof Error ? error.message : "เปลี่ยนข้อมูลความปลอดภัยไม่สำเร็จ" },
+        { status: 422 },
+      );
+    }
+  }
 
   if (body.action === "SETUP") {
     if (!isLocalRequest(request) || !(await needsInitialSetup())) {

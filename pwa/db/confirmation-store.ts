@@ -376,7 +376,7 @@ export async function upsertUser(
   }
   const username = normalizeUsername(profile?.username ?? email.split("@")[0]);
   const duplicate = await db()
-    .prepare("SELECT email FROM admin_users WHERE username = ? AND email <> ?")
+    .prepare("SELECT email FROM admin_users WHERE lower(username) = lower(?) AND email <> ?")
     .bind(username, normalizedEmail)
     .first<{ email: string }>();
   if (duplicate) throw new Error("Username นี้ถูกใช้งานแล้ว");
@@ -412,9 +412,9 @@ export async function upsertUser(
 }
 
 function normalizeUsername(value: string) {
-  const username = value.trim().toLowerCase();
-  if (!/^[a-z0-9._-]{2,64}$/.test(username)) {
-    throw new Error("Username ต้องมี 2-64 ตัว และใช้ได้เฉพาะ a-z, 0-9, จุด, ขีดกลาง หรือขีดล่าง");
+  const username = value.trim();
+  if (!/^[a-zA-Z0-9._-]{2,64}$/.test(username)) {
+    throw new Error("Username ต้องมี 2-64 ตัว และใช้ได้เฉพาะ a-z, A-Z, 0-9, จุด, ขีดกลาง หรือขีดล่าง");
   }
   return username;
 }
