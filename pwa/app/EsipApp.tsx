@@ -756,6 +756,14 @@ export default function EsipApp() {
     return haystack.includes(userSearch.trim().toLowerCase())
       && (userStatusFilter === "ALL" || user.status === userStatusFilter);
   });
+  const referenceTarget = (report: string) => {
+    const name = report.toLowerCase();
+    if (name.includes("daily") || name.includes("monthly")) return "live-daily";
+    if (name.includes("branch") || name.includes("sku") || name.includes("mt comparison")) return "live-rankings";
+    if (name.includes("stock")) return "live-stock";
+    if (name.includes("yoy")) return "live-yoy";
+    return "analytics-modules";
+  };
 
   return (
     <div className="app-shell">
@@ -836,14 +844,20 @@ export default function EsipApp() {
               <article className="kpi warning"><span>Confirm queue</span><strong>{loading ? "—" : money(queueTotal)}</strong><small>รายการย่อยจริง</small></article>
             </div>
             <div className="dashboard-grid">
-              <article className="panel trend-panel">
+              <article className="panel trend-panel" id="live-daily">
                 <div className="panel-head"><div><p className="eyebrow">DAILY SALES TREND</p><h3>ยอดขายรายวัน</h3></div><span className="status-pill">{trend.length} วัน</span></div>
                 <DailySalesChart rows={trend} money={money} />
               </article>
               <article className="panel action-panel">
                 <div className="panel-head"><div><p className="eyebrow">REFERENCE COVERAGE</p><h3>สิ่งที่ดูได้แล้ว</h3></div></div>
                 {(dashboard?.reference_coverage ?? []).slice(0, 5).map((item, index) => (
-                  <div className="action-row" key={item.report}><span>{String(index + 1).padStart(2, "0")}</span><div><strong>{item.report}</strong><small>{item.note}</small></div><i className={item.status === "AVAILABLE" ? "ready" : "waiting"} /></div>
+                  <div className="action-row" key={item.report}>
+                    <span>{String(index + 1).padStart(2, "0")}</span>
+                    <div><strong>{item.report}</strong><small>{item.note}</small></div>
+                    {item.status === "AVAILABLE"
+                      ? <button onClick={() => document.getElementById(referenceTarget(item.report))?.scrollIntoView({ behavior: "smooth", block: "start" })}>ดูข้อมูล</button>
+                      : <b>MODEL</b>}
+                  </div>
                 ))}
               </article>
             </div>
@@ -864,8 +878,12 @@ export default function EsipApp() {
               rows={dashboard?.source_sales ?? []}
               sourceStatus={dashboard?.source_status ?? []}
             />
-            <div className="intelligence-grid">
-              <article className="panel mt-mix">
+            <div className="dashboard-section-head" id="live-rankings">
+              <div><p className="eyebrow teal">AVAILABLE ANALYTICS</p><h3>ข้อมูลจริงที่เปิดดูได้ทันที</h3></div>
+              <small>แสดงบนหน้า Overview โดยไม่ต้องกดเปิด Detail</small>
+            </div>
+            <div className="live-analytics-grid">
+              <article className="panel mt-mix live-analytics-panel">
                 <div className="panel-head"><div><p className="eyebrow">MT CONTRIBUTION</p><h3>สัดส่วนยอดขายตาม MT</h3></div><span className="status-pill">LIVE</span></div>
                 <div className="mix-list">
                   {sourceSales.map((row) => (
@@ -878,20 +896,34 @@ export default function EsipApp() {
                   ))}
                 </div>
               </article>
-              <article className="panel signal-board">
-                <div className="panel-head"><div><p className="eyebrow">MANAGEMENT SIGNALS</p><h3>สัญญาณที่ต้องตัดสินใจ</h3></div></div>
-                <div className="signal-list">
-                  <div className="signal live"><span>01</span><div><strong>Sales & Quantity</strong><small>ข้อมูลจริงพร้อมวิเคราะห์รายวันและราย MT</small></div><b>LIVE</b></div>
-                  <div className="signal live"><span>02</span><div><strong>Inventory Position</strong><small>เห็น On Hand ล่าสุดของทุก MT ที่ส่งข้อมูล</small></div><b>LIVE</b></div>
-                  <div className="signal attention"><span>03</span><div><strong>Mapping Governance</strong><small>{money(queueTotal)} รายการรอ Admin Confirm</small></div><b>ACTION</b></div>
-                  <div className="signal waiting"><span>04</span><div><strong>Target & Forecast</strong><small>โครงสร้างพร้อม รอ Target และ Forecast</small></div><b>WAITING</b></div>
-                  <div className="signal waiting"><span>05</span><div><strong>Gross Profit & Margin</strong><small>โครงสร้างพร้อม รอ Cost / COGS</small></div><b>WAITING</b></div>
-                </div>
-              </article>
+              <RankedAnalyticsPanel
+                eyebrow="BRANCH PERFORMANCE"
+                title="Top 8 สาขาตามยอดขาย"
+                rows={(dashboard?.top_branches ?? []).slice(0, 8).map((row) => ({
+                  code: row.source_code,
+                  label: row.branch_source_name || "ไม่ระบุสาขา",
+                  value: Number(row.net_amount) || 0,
+                  detail: `${money(row.net_qty)} ชิ้น`,
+                }))}
+                money={money}
+              />
+              <RankedAnalyticsPanel
+                eyebrow="PRODUCT PERFORMANCE"
+                title="Top 8 SKU ตามยอดขาย"
+                rows={(dashboard?.top_products ?? []).slice(0, 8).map((row) => ({
+                  code: row.sap_item_code || "N/A",
+                  label: row.source_sku || "ไม่ระบุ Source SKU",
+                  value: Number(row.net_amount) || 0,
+                  detail: `${money(row.net_qty)} ชิ้น`,
+                }))}
+                money={money}
+              />
+              <InventoryAnalyticsPanel rows={dashboard?.inventory ?? []} money={money} />
             </div>
+            <YoYAnalyticsPanel rows={trend} money={money} />
             <div className="dashboard-section-head compact">
-              <div><p className="eyebrow">ANALYTICS BLUEPRINT</p><h3>Dashboard Module ทั้งหมด</h3></div>
-              <small>Module ที่ยังไม่มีข้อมูลจะแสดง WAITING DATA โดยไม่สร้างตัวเลขจำลอง</small>
+              <div id="analytics-modules"><p className="eyebrow">FURTHER ANALYSIS</p><h3>Dashboard สำหรับเจาะรายละเอียดและ Simulation</h3></div>
+              <small>ใช้ Detail เมื่อต้องการปรับสมมติฐานหรือวิเคราะห์ลึกกว่าภาพรวม</small>
             </div>
             <div className="module-grid">
               {moduleCards.map((card) => (
@@ -1262,6 +1294,104 @@ export default function EsipApp() {
         {visibleNav.slice(0, 3).map(([id, label]) => <button key={id} onClick={() => setActive(id)} className={active === id ? "active" : ""}><span>{id === "dashboard" ? "⌂" : id === "reports" ? "▥" : "✓"}</span>{label}</button>)}
       </nav>
     </div>
+  );
+}
+
+function RankedAnalyticsPanel({
+  eyebrow,
+  money,
+  rows,
+  title,
+}: {
+  eyebrow: string;
+  money: (value: number) => string;
+  rows: Array<{ code: string; label: string; value: number; detail: string }>;
+  title: string;
+}) {
+  const max = Math.max(...rows.map((row) => row.value), 1);
+  return (
+    <article className="panel live-analytics-panel ranked-panel">
+      <div className="panel-head"><div><p className="eyebrow">{eyebrow}</p><h3>{title}</h3></div><span className="status-pill">LIVE</span></div>
+      <div className="ranked-list">
+        {rows.map((row, index) => (
+          <div key={`${row.code}-${row.label}`}>
+            <span className="rank-number">{index + 1}</span>
+            <span className="rank-label"><strong>{row.label}</strong><small>{row.code} · {row.detail}</small></span>
+            <span className="rank-bar"><i style={{ width: `${Math.max((row.value / max) * 100, 2)}%` }} /></span>
+            <b>{money(row.value)}</b>
+          </div>
+        ))}
+        {rows.length === 0 && <div className="empty">ยังไม่มีข้อมูล</div>}
+      </div>
+    </article>
+  );
+}
+
+function InventoryAnalyticsPanel({
+  money,
+  rows,
+}: {
+  money: (value: number) => string;
+  rows: DashboardData["inventory"];
+}) {
+  const max = Math.max(...rows.map((row) => Number(row.onhand_qty) || 0), 1);
+  return (
+    <article className="panel live-analytics-panel" id="live-stock">
+      <div className="panel-head"><div><p className="eyebrow">STOCK ON HAND</p><h3>สินค้าคงเหลือล่าสุดแยก MT</h3></div><span className="status-pill">LIVE</span></div>
+      <div className="inventory-live-list">
+        {rows.map((row) => (
+          <div key={row.source_code}>
+            <span className="source-logo mini">{row.source_code}</span>
+            <span><strong>{sourceNames[row.source_code] ?? row.source_code}</strong><small>Snapshot {row.snapshot_date}</small></span>
+            <span className="inventory-live-bar"><i style={{ width: `${Math.max((Number(row.onhand_qty) / max) * 100, 2)}%` }} /></span>
+            <span className="inventory-live-value"><strong>{money(row.onhand_qty)} ชิ้น</strong><small>{money(row.onhand_value)} บาท</small></span>
+          </div>
+        ))}
+        {rows.length === 0 && <div className="empty">ยังไม่มีข้อมูล Stock Snapshot</div>}
+      </div>
+    </article>
+  );
+}
+
+function YoYAnalyticsPanel({
+  money,
+  rows,
+}: {
+  money: (value: number) => string;
+  rows: DashboardData["trend"];
+}) {
+  const monthly = new Map<string, number>();
+  for (const row of rows) {
+    const key = row.sales_date.slice(0, 7);
+    monthly.set(key, (monthly.get(key) ?? 0) + (Number(row.net_amount) || 0));
+  }
+  const year2025 = Array.from({ length: 12 }, (_, index) => monthly.get(`2025-${String(index + 1).padStart(2, "0")}`) ?? 0);
+  const year2026 = Array.from({ length: 12 }, (_, index) => monthly.get(`2026-${String(index + 1).padStart(2, "0")}`) ?? 0);
+  const max = Math.max(...year2025, ...year2026, 1);
+  const monthLabels = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+  const comparableMonths = year2026.filter((value) => value > 0).length;
+  const comparable2025 = year2025.slice(0, comparableMonths).reduce((sum, value) => sum + value, 0);
+  const comparable2026 = year2026.slice(0, comparableMonths).reduce((sum, value) => sum + value, 0);
+  const growth = comparable2025 ? ((comparable2026 - comparable2025) / comparable2025) * 100 : null;
+  return (
+    <article className="panel yoy-live-panel" id="live-yoy">
+      <div className="panel-head">
+        <div><p className="eyebrow">YEAR-OVER-YEAR</p><h3>ยอดขายรายเดือน 2025 เทียบ 2026</h3></div>
+        <span className={`yoy-growth ${growth !== null && growth < 0 ? "negative" : "positive"}`}>{growth === null ? "N/A" : `${growth >= 0 ? "+" : ""}${growth.toFixed(1)}% YTD`}</span>
+      </div>
+      <div className="yoy-legend"><span><i className="year-2025" />2025</span><span><i className="year-2026" />2026</span><small>เปรียบเทียบ {comparableMonths} เดือนที่มีข้อมูลร่วมกัน</small></div>
+      <div className="yoy-bars" role="img" aria-label="กราฟยอดขายรายเดือนปี 2025 เทียบ 2026">
+        {monthLabels.map((month, index) => (
+          <div key={month}>
+            <span className="yoy-bar-pair">
+              <i className="year-2025" style={{ height: `${Math.max((year2025[index] / max) * 100, year2025[index] ? 2 : 0)}%` }} title={`${month} 2025: ${money(year2025[index])} บาท`} />
+              <i className="year-2026" style={{ height: `${Math.max((year2026[index] / max) * 100, year2026[index] ? 2 : 0)}%` }} title={`${month} 2026: ${money(year2026[index])} บาท`} />
+            </span>
+            <b>{month}</b>
+          </div>
+        ))}
+      </div>
+    </article>
   );
 }
 
